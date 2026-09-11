@@ -399,42 +399,11 @@ async def run_live_inference(
     model_choice: str = Form("onnx"),
     conf_override: Optional[float] = Form(None),
 ):
-    """Executes live false-positive-free inference on an uploaded image or video."""
+    """Executes live false-positive-free inference on an uploaded image or entire video."""
     try:
         contents = await file.read()
         filename_lower = file.filename.lower()
         is_video = any(filename_lower.endswith(ext) for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"])
-
-        img = None
-        if is_video:
-            # Save temporary video to extract test frame
-            temp_video_path = UPLOADS_DIR / f"temp_{file.filename}"
-            with open(temp_video_path, "wb") as f:
-                f.write(contents)
-
-            cap = cv2.VideoCapture(str(temp_video_path))
-            total_v_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-            # Sample frame at ~15% into video for representative content
-            target_frame_no = min(15, total_v_frames - 1)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame_no)
-            ret, frame = cap.read()
-            if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = cap.read()
-            cap.release()
-            try:
-                temp_video_path.unlink()
-            except Exception:
-                pass
-
-            if not ret or frame is None:
-                raise HTTPException(status_code=400, detail="Could not extract a valid frame from the uploaded video.")
-            img = frame
-        else:
-            nparr = np.frombuffer(contents, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is None:
-                raise HTTPException(status_code=400, detail="Invalid image file format.")
 
         # Determine model path
         if model_choice == "onnx":
@@ -466,24 +435,142 @@ async def run_live_inference(
             for cname in detector.class_thresholds:
                 detector.class_thresholds[cname]["calibrated_conf"] = float(conf_override)
 
-        dets = detector.predict_image(img)
-        vis = detector.annotate_image(img, dets)
-
-        # Save result for viewing
-        out_name = f"infer_{Path(file.filename).stem}.jpg"
-        out_path = UPLOADS_DIR / out_name
-        cv2.imwrite(str(out_path), vis)
-
         effective_conf = conf_override if conf_override is not None else detector.global_threshold
 
-        return {
-            "status": "success",
-            "model_used": Path(model_path).name,
-            "detections_count": len(dets),
-            "detections": dets,
-            "calibrated_threshold": effective_conf,
-            "annotated_image_url": f"/files/web_uploads/{out_name}",
-        }
+        if is_video:
+            # Process the entire video
+            temp_video_path = UPLOADS_DIR / f"temp_{file.filename}"
+            with open(temp_video_path, "wb") as f:
+                f.write(contents)
+
+            cap = cv2.VideoCapture(str(temp_video_path))
+            if not cap.isOpened():
+                try:
+                    temp_video_path.unlink()
+                except Exception:
+                    pass
+                raise HTTPException(status_code=400, detail="Could not open the uploaded video file.")
+
+            total_v_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            stem = Path(file.filename).stem
+            raw_video_path = UPLOADS_DIR / f"raw_infer_{stem}.mp4"
+            final_video_path = UPLOADS_DIR / f"infer_{stem}.mp4"
+            thumb_path = UPLOADS_DIR / f"infer_{stem}.jpg"
+
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(raw_video_path), fourcc, fps, (w, h))
+
+            frame_idx = 0
+            total_dets = 0
+            max_dets = 0
+            class_counts = {}
+            thumb_saved = False
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                dets = detector.predict_image(frame)
+                vis = detector.annotate_image(frame, dets)
+                writer.write(vis)
+
+                c = len(dets)
+                total_dets += c
+                if c > max_dets:
+                    max_dets = c
+
+                for d in dets:
+                    cn = d["class_name"]
+                    class_counts[cn] = class_counts.get(cn, 0) + 1
+
+                # Save thumbnail frame with detection if available, else first frame
+                if not thumb_saved and c > 0:
+                    cv2.imwrite(str(thumb_path), vis)
+                    thumb_saved = True
+                elif not thumb_saved and frame_idx == 0:
+                    cv2.imwrite(str(thumb_path), vis)
+
+                frame_idx += 1
+
+            cap.release()
+            writer.release()
+            try:
+                temp_video_path.unlink()
+            except Exception:
+                pass
+
+            # If thumbnail wasn't saved, ensure one exists
+            if not thumb_path.exists() and frame_idx > 0:
+                cv2.imwrite(str(thumb_path), vis)
+
+            # Re-encode to universal browser-compatible H.264 using ffmpeg if available
+            converted = False
+            try:
+                import subprocess
+                res_ff = subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-i", str(raw_video_path),
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                        str(final_video_path)
+                    ],
+                    capture_output=True
+                )
+                if res_ff.returncode == 0 and final_video_path.exists() and final_video_path.stat().st_size > 0:
+                    raw_video_path.unlink(missing_ok=True)
+                    converted = True
+            except Exception:
+                pass
+
+            if not converted:
+                if final_video_path.exists():
+                    final_video_path.unlink(missing_ok=True)
+                raw_video_path.rename(final_video_path)
+
+            append_log(f"Processed entire video '{file.filename}': {frame_idx} frames, {total_dets} detections found.")
+
+            return {
+                "status": "success",
+                "is_video": True,
+                "model_used": Path(model_path).name,
+                "total_frames": frame_idx,
+                "fps": round(fps, 2),
+                "duration_sec": round(frame_idx / max(fps, 1.0), 2),
+                "detections_count": total_dets,
+                "max_detections_per_frame": max_dets,
+                "class_counts": class_counts,
+                "calibrated_threshold": effective_conf,
+                "annotated_video_url": f"/files/web_uploads/{final_video_path.name}",
+                "annotated_image_url": f"/files/web_uploads/{thumb_path.name}",
+            }
+
+        else:
+            # Process single image
+            nparr = np.frombuffer(contents, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                raise HTTPException(status_code=400, detail="Invalid image file format.")
+
+            dets = detector.predict_image(img)
+            vis = detector.annotate_image(img, dets)
+
+            out_name = f"infer_{Path(file.filename).stem}.jpg"
+            out_path = UPLOADS_DIR / out_name
+            cv2.imwrite(str(out_path), vis)
+
+            return {
+                "status": "success",
+                "is_video": False,
+                "model_used": Path(model_path).name,
+                "detections_count": len(dets),
+                "detections": dets,
+                "calibrated_threshold": effective_conf,
+                "annotated_image_url": f"/files/web_uploads/{out_name}",
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -534,8 +621,9 @@ def serve_exported_models(filename: str):
 @app.get("/files/web_uploads/{filename}")
 def serve_uploads(filename: str):
     p = UPLOADS_DIR / filename
-    if p.exists():
-        return FileResponse(p)
+    if p.exists() and p.is_file():
+        media_type = "video/mp4" if p.suffix.lower() == ".mp4" else None
+        return FileResponse(p, media_type=media_type)
     raise HTTPException(status_code=404)
 
 

@@ -510,14 +510,20 @@
 
           <div class="preview-container">
             <img id="inferResultImg" class="preview-img" src="" style="display: none;">
+            <video id="inferResultVideo" class="preview-img" controls autoplay loop playsinline style="display: none; width: 100%; max-height: 480px; object-fit: contain; background: #050811; border-radius: 8px;"></video>
             <div id="inferPlaceholder" style="text-align: center; color: var(--text-muted);">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.5;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              <div>Upload an image and run inference to see bounding boxes with zero-FP rejection.</div>
+              <div>Upload an image or video to see calibrated bounding boxes with zero-FP rejection.</div>
             </div>
           </div>
 
+          <a id="btnDownloadVideo" class="btn btn-secondary" style="display: none; margin-top: 0.75rem; width: 100%; justify-content: center; gap: 0.5rem;" download>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Annotated Video (.mp4)
+          </a>
+
           <!-- Inference Metrics -->
-          <div id="inferMetricsRow" class="metrics-badge-row" style="display: none;">
+          <div id="inferMetricsRow" class="metrics-badge-row" style="display: none; margin-top: 1rem;">
             <div class="metric-badge">
               <span class="metric-badge-label">Model Used</span>
               <span id="metricModelUsed" class="metric-badge-value">-</span>
@@ -525,6 +531,10 @@
             <div class="metric-badge">
               <span class="metric-badge-label">Calibrated Floor (τ*)</span>
               <span id="metricCalibFloor" class="metric-badge-value">-</span>
+            </div>
+            <div id="metricFramesBadge" class="metric-badge" style="display: none;">
+              <span class="metric-badge-label">Total Frames</span>
+              <span id="metricTotalFrames" class="metric-badge-value">0</span>
             </div>
             <div class="metric-badge">
               <span class="metric-badge-label">Detections</span>

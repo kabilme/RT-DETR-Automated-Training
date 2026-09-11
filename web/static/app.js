@@ -463,9 +463,9 @@ async function submitInference() {
 
   const modelChoice = document.getElementById("inferModelSelect").value;
   const confOverrideVal = document.getElementById("inferConfOverride") ? document.getElementById("inferConfOverride").value : "";
-  const btn = document.getElementById("btnRunInference");
+  const isVideoFile = selectedFile && (selectedFile.type.startsWith("video/") || /\.(mp4|avi|mov|mkv|webm)$/i.test(selectedFile.name));
   btn.disabled = true;
-  btn.textContent = "Detecting (Zero-FP Defense Active)...";
+  btn.textContent = isVideoFile ? "Analyzing Entire Video (Calibrating Every Frame)..." : "Detecting (Zero-FP Defense Active)...";
 
   const formData = new FormData();
   formData.append("file", selectedFile);
@@ -483,16 +483,52 @@ async function submitInference() {
     if (res.ok) {
       const data = await res.json();
       const resultImg = document.getElementById("inferResultImg");
+      const resultVideo = document.getElementById("inferResultVideo");
+      const downloadBtn = document.getElementById("btnDownloadVideo");
       const placeholder = document.getElementById("inferPlaceholder");
       const badgeCount = document.getElementById("inferBadgeCount");
       const metricsRow = document.getElementById("inferMetricsRow");
+      const framesBadge = document.getElementById("metricFramesBadge");
+      const totalFramesVal = document.getElementById("metricTotalFrames");
 
-      resultImg.src = `${data.annotated_image_url}?t=${new Date().getTime()}`;
-      resultImg.style.display = "block";
       if (placeholder) placeholder.style.display = "none";
 
-      badgeCount.textContent = `${data.detections_count} Calibrated Object(s)`;
-      badgeCount.style.display = "inline-flex";
+      if (data.is_video) {
+        // Video result: play annotated video in player
+        resultImg.style.display = "none";
+        resultVideo.src = `${data.annotated_video_url}?t=${new Date().getTime()}`;
+        resultVideo.style.display = "block";
+        resultVideo.load();
+        resultVideo.play().catch(() => {});
+
+        if (downloadBtn) {
+          downloadBtn.href = data.annotated_video_url;
+          downloadBtn.download = data.annotated_video_url.split("/").pop();
+          downloadBtn.style.display = "inline-flex";
+        }
+
+        if (framesBadge && totalFramesVal) {
+          framesBadge.style.display = "flex";
+          totalFramesVal.textContent = `${data.total_frames} (${data.duration_sec}s)`;
+        }
+
+        badgeCount.textContent = `${data.total_frames} Frames • ${data.detections_count} Total Detections`;
+        badgeCount.style.display = "inline-flex";
+      } else {
+        // Single image result
+        if (resultVideo) {
+          resultVideo.pause();
+          resultVideo.style.display = "none";
+        }
+        if (downloadBtn) downloadBtn.style.display = "none";
+        if (framesBadge) framesBadge.style.display = "none";
+
+        resultImg.src = `${data.annotated_image_url}?t=${new Date().getTime()}`;
+        resultImg.style.display = "block";
+
+        badgeCount.textContent = `${data.detections_count} Calibrated Object(s)`;
+        badgeCount.style.display = "inline-flex";
+      }
 
       metricsRow.style.display = "flex";
       document.getElementById("metricModelUsed").textContent = data.model_used;
