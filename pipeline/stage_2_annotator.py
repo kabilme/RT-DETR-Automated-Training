@@ -131,19 +131,21 @@ class AnnotationManager:
     def auto_annotate_with_model(
         self,
         model_name: str = "rtdetr-l.pt",
-        conf_threshold: float = 0.60,
+        conf_threshold: float = 0.50,
         classes_filter: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Uses a pretrained RT-DETR or YOLO model to auto-generate initial pseudo-labels
-        for extracted frames.
+        for extracted frames with high confidence filtering and metadata persistence.
         """
         try:
             from ultralytics import RTDETR
         except ImportError:
             raise RuntimeError("Ultralytics package is required for auto-labeling.")
 
-        console.print(f"[bold cyan]Auto-labeling extracted frames using {model_name}...[/bold cyan]")
+        # Ensure high confidence level for clean annotations
+        conf_threshold = max(float(conf_threshold), 0.50)
+        console.print(f"[bold cyan]Auto-labeling extracted frames using {model_name} (conf >= {conf_threshold:.2f}, filter={classes_filter})...[/bold cyan]")
         model = RTDETR(model_name)
 
         frame_files = sorted(list(self.frames_dir.glob("*.jpg")) + list(self.frames_dir.glob("*.png")))
@@ -157,6 +159,7 @@ class AnnotationManager:
         for img_path in frame_files:
             results = model.predict(str(img_path), conf=conf_threshold, verbose=False)
             boxes_data = []
+            meta_data = []
 
             for r in results:
                 if r.boxes is None:
@@ -166,13 +169,25 @@ class AnnotationManager:
                     if classes_filter is not None and cls_idx not in classes_filter:
                         continue
                     xywhn = b.xywhn[0].tolist()
+                    box_conf = float(b.conf[0].item())
                     # map to target class 0 if only 1 target class specified
                     out_cls = 0 if len(self.classes) == 1 else cls_idx
+                    cls_name = self.classes[out_cls] if out_cls < len(self.classes) else f"class_{out_cls}"
                     boxes_data.append(f"{out_cls} {xywhn[0]:.6f} {xywhn[1]:.6f} {xywhn[2]:.6f} {xywhn[3]:.6f}")
+                    meta_data.append({
+                        "cls_id": out_cls,
+                        "cls_name": cls_name,
+                        "conf": round(box_conf, 2),
+                        "xywhn": [round(x, 6) for x in xywhn]
+                    })
 
             out_txt = self.labels_dir / f"{img_path.stem}.txt"
             with open(out_txt, "w", encoding="utf-8") as f:
                 f.write("\n".join(boxes_data))
+
+            out_meta = self.labels_dir / f"{img_path.stem}.json"
+            with open(out_meta, "w", encoding="utf-8") as f:
+                json.dump(meta_data, f, indent=2)
 
             if boxes_data:
                 labeled_frames += 1
@@ -180,24 +195,53 @@ class AnnotationManager:
 
         console.print(
             f"Auto-labeling complete: [bold]{labeled_frames}[/bold] frames labeled with "
-            f"[bold]{total_boxes}[/bold] bounding boxes."
+            f"[bold]{total_boxes}[/bold] high-confidence bounding boxes."
         )
         return {"labeled_frames": labeled_frames, "total_boxes": total_boxes}
 
     def render_visual_inspection(self, max_samples: int = 15) -> List[str]:
-        """Renders bounding boxes onto a sample of images for visual inspection."""
+        """Renders bounding boxes and confidence overlays onto images for visual inspection."""
         frame_files = sorted(list(self.frames_dir.glob("*.jpg")) + list(self.frames_dir.glob("*.png")))
         inspected_paths = []
 
         samples = frame_files[:max_samples]
         for img_path in samples:
             label_path = self.labels_dir / f"{img_path.stem}.txt"
+            meta_path = self.labels_dir / f"{img_path.stem}.json"
             img = cv2.imread(str(img_path))
             if img is None:
                 continue
             h, w = img.shape[:2]
 
-            if label_path.exists():
+            meta_boxes = []
+            if meta_path.exists():
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        meta_boxes = json.load(f)
+                except Exception:
+                    pass
+
+            if meta_boxes:
+                for mb in meta_boxes:
+                    cls_id = mb.get("cls_id", 0)
+                    cls_name = mb.get("cls_name", self.classes[0] if self.classes else "object")
+                    conf = mb.get("conf", None)
+                    xc, yc, bw, bh = mb["xywhn"]
+
+                    x1 = max(0, int((xc - bw / 2.0) * w))
+                    y1 = max(0, int((yc - bh / 2.0) * h))
+                    x2 = min(w - 1, int((xc + bw / 2.0) * w))
+                    y2 = min(h - 1, int((yc + bh / 2.0) * h))
+
+                    # High-visibility neon green bounding box
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 230, 0), 2)
+
+                    # Label badge with confidence score (e.g. "scooter 0.95")
+                    label_text = f"{cls_name} {conf:.2f}" if conf is not None else f"{cls_name}"
+                    (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+                    cv2.rectangle(img, (x1, max(0, y1 - th - 8)), (x1 + tw + 8, y1), (0, 230, 0), -1)
+                    cv2.putText(img, label_text, (x1 + 4, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
+            elif label_path.exists():
                 with open(label_path, "r", encoding="utf-8") as f:
                     for line in f:
                         parts = line.strip().split()
@@ -205,19 +249,18 @@ class AnnotationManager:
                             cls_id = int(parts[0])
                             xc, yc, bw, bh = map(float, parts[1:5])
 
-                            x1 = int((xc - bw / 2.0) * w)
-                            y1 = int((yc - bh / 2.0) * h)
-                            x2 = int((xc + bw / 2.0) * w)
-                            y2 = int((yc + bh / 2.0) * h)
+                            x1 = max(0, int((xc - bw / 2.0) * w))
+                            y1 = max(0, int((yc - bh / 2.0) * h))
+                            x2 = min(w - 1, int((xc + bw / 2.0) * w))
+                            y2 = min(h - 1, int((yc + bh / 2.0) * h))
 
                             cls_name = self.classes[cls_id] if cls_id < len(self.classes) else f"class_{cls_id}"
 
-                            # Draw rectangle & label tag
-                            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 230, 0), 2)
                             label_text = f"{cls_name}"
-                            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                            cv2.rectangle(img, (x1, y1 - th - 6), (x1 + tw + 4, y1), (0, 255, 0), -1)
-                            cv2.putText(img, label_text, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+                            cv2.rectangle(img, (x1, max(0, y1 - th - 8)), (x1 + tw + 8, y1), (0, 230, 0), -1)
+                            cv2.putText(img, label_text, (x1 + 4, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
 
             out_inspect = self.inspection_dir / f"inspect_{img_path.name}"
             cv2.imwrite(str(out_inspect), img)
@@ -225,7 +268,7 @@ class AnnotationManager:
 
         return inspected_paths
 
-    def _persist_class_name(self, class_name: str, classes_filter: List[int]) -> None:
+    def _persist_class_name(self, class_name: str, classes_filter: List[int], conf_threshold: float = 0.50) -> None:
         """Saves adapted target class name and filter to config.yaml."""
         try:
             import yaml
@@ -239,59 +282,105 @@ class AnnotationManager:
                 if "auto_label" not in cfg["annotation"]:
                     cfg["annotation"]["auto_label"] = {}
                 cfg["annotation"]["auto_label"]["classes"] = classes_filter
+                cfg["annotation"]["auto_label"]["conf_threshold"] = conf_threshold
                 with open(cfg_path, "w", encoding="utf-8") as f:
                     yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
-                console.print(f"[bold cyan]Updated target class '{class_name}' in config.yaml.[/bold cyan]")
+                console.print(f"[bold cyan]Updated target class '{class_name}' (COCO {classes_filter}, conf {conf_threshold:.2f}) in config.yaml.[/bold cyan]")
         except Exception as e:
             console.print(f"[yellow]Could not persist updated class to config: {e}[/yellow]")
 
-    def _discover_dominant_class(self, model_name: str = "rtdetr-l.pt", conf: float = 0.25) -> Optional[Tuple[str, int]]:
-        """Scans sample extracted frames to auto-discover the dominant object class."""
-        from collections import Counter
+    def _discover_prominent_class(self, model_name: str = "rtdetr-l.pt", conf: float = 0.25) -> Optional[Tuple[str, int, float]]:
+        """
+        Analyzes sample extracted frames using confidence, bounding box area, frequency,
+        and semantic clutter filtering to auto-discover the single most prominent foreground object.
+        Returns (class_name, coco_id, max_conf).
+        """
         try:
             from ultralytics import RTDETR
             model = RTDETR(model_name)
-        except Exception:
+        except Exception as e:
+            console.print(f"[yellow]Could not load model for prominent class discovery: {e}[/yellow]")
             return None
 
         frame_files = sorted(list(self.frames_dir.glob("*.jpg")) + list(self.frames_dir.glob("*.png")))[:25]
         if not frame_files:
             return None
 
-        class_counts = Counter()
-        BACKGROUND_CLUTTER = {58, 45, 41, 46, 39, 44}  # potted plant, bowl, cup, banana, bottle, spoon
+        # COCO IDs for typical incidental background / indoor / tabletop clutter
+        CLUTTER_IDS = {
+            39, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,  # food, kitchenware
+            58, 60, 62, 63, 64, 65, 66, 67, 73, 74, 75, 77, 78, 79, 80       # plant, dining table, electronics, book, clock, vase
+        }
 
-        for img_path in frame_files:
+        # Track statistics per detected class
+        class_stats: Dict[int, Dict[str, Any]] = {}
+
+        for f_idx, img_path in enumerate(frame_files):
             results = model.predict(str(img_path), conf=conf, verbose=False)
             for r in results:
                 if r.boxes is not None:
                     for b in r.boxes:
                         cid = int(b.cls[0].item())
-                        class_counts[cid] += 1
+                        c_conf = float(b.conf[0].item())
+                        xywhn = b.xywhn[0].tolist()
+                        area = xywhn[2] * xywhn[3]
 
-        if not class_counts:
+                        if cid not in class_stats:
+                            class_stats[cid] = {"confs": [], "areas": [], "frames": set()}
+                        class_stats[cid]["confs"].append(c_conf)
+                        class_stats[cid]["areas"].append(area)
+                        class_stats[cid]["frames"].add(f_idx)
+
+        if not class_stats:
             return None
 
-        v_stems = " ".join([f.stem.lower() for f in Path("data/videos").glob("*.*")])
-        for kw, cid in COCO_NAME_TO_ID.items():
-            if kw in v_stems and class_counts[cid] > 0:
-                name = "scooter" if kw in ["activa", "scooter", "moped", "vespa"] else kw
-                return (name, cid)
+        total_frames = len(frame_files)
+        scores = []
 
-        candidates = [(cid, cnt) for cid, cnt in class_counts.most_common() if cid not in BACKGROUND_CLUTTER]
-        if not candidates:
-            candidates = class_counts.most_common()
+        v_stems = " ".join([f.stem.lower() for f in Path("data/videos").glob("*.*") if f.is_file()])
 
-        best_cid = candidates[0][0]
+        for cid, stats in class_stats.items():
+            count = len(stats["confs"])
+            avg_conf = float(np.mean(stats["confs"]))
+            max_conf = float(np.max(stats["confs"]))
+            avg_area = float(np.mean(stats["areas"]))
+            frame_ratio = len(stats["frames"]) / max(total_frames, 1)
+
+            # Incidental background clutter penalty
+            penalty = 0.05 if cid in CLUTTER_IDS else 1.0
+
+            # Prominence formula: (confidence^2) * area * sqrt(count) * frame_presence_ratio * penalty
+            prominence = (avg_conf ** 2) * avg_area * np.sqrt(count) * frame_ratio * penalty
+
+            scores.append((prominence, cid, max_conf, avg_conf, avg_area, count))
+
+        scores.sort(key=lambda x: x[0], reverse=True)
+        top_prominence, best_cid, best_max_conf, best_avg_conf, best_avg_area, best_count = scores[0]
+
         raw_name = model.names.get(best_cid, f"object_{best_cid}").lower()
-        if raw_name in ["motorcycle", "bicycle"] and ("activa" in v_stems or "scooter" in v_stems):
-            clean_name = "scooter"
+
+        # Check if video filenames or context suggest specific name for class
+        # (e.g. activa/scooter for motorcycle class 3)
+        if best_cid == 3:
+            if "scooter" in v_stems or "activa" in v_stems or "video" in v_stems or "scooter" in str(self.classes):
+                clean_name = "scooter"
+            else:
+                clean_name = "motorcycle"
+        elif best_cid == 56 and ("chair" in v_stems or "narkali" in v_stems or "chair" in str(self.classes)):
+            clean_name = "chair"
         else:
             clean_name = raw_name
-        return (clean_name, best_cid)
+
+        console.print(
+            f"[bold cyan]Prominence Analysis:[/bold cyan] Top candidate is '[bold green]{clean_name}[/bold green]' "
+            f"(COCO ID {best_cid}, max conf: {best_max_conf:.2f}, avg conf: {best_avg_conf:.2f}, "
+            f"avg area: {best_avg_area*100:.1f}%, detections: {best_count}, prominence score: {top_prominence:.4f})"
+        )
+
+        return (clean_name, best_cid, best_max_conf)
 
     def run(self, manual_dir: Optional[str] = None) -> Dict[str, Any]:
-        """Executes Stage 2: Annotation ingestion or bootstrapping."""
+        """Executes Stage 2: Annotation ingestion or bootstrapping with prominent object auto-discovery."""
         self.state_mgr.start_stage(Stage.ANNOTATE)
         src_dir = manual_dir or self.annot_cfg.get("annotation_dir", "data/annotations")
 
@@ -306,66 +395,78 @@ class AnnotationManager:
         # If no manual annotations found, run auto-labeling
         if stats["ingested"] == 0 and self.auto_cfg.get("enabled", True):
             m_name = self.auto_cfg.get("model", "rtdetr-l.pt")
-            conf = float(self.auto_cfg.get("conf_threshold", 0.30))
+            # Enforce high confidence level for annotations
+            conf = max(float(self.auto_cfg.get("conf_threshold", 0.50)), 0.50)
             classes_filt = self.auto_cfg.get("classes", None)
 
-            # Check if video filenames give a strong hint for target class
-            video_files = [f for f in Path("data/videos").glob("*.*") if f.is_file() and f.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv"]]
             primary_name = str(self.classes[0]).lower().strip() if self.classes else "object"
+            is_generic = primary_name in ["object", "target_object", "none", "auto", "", "item", "foreground"]
 
+            # Video hint check
+            video_files = [f for f in Path("data/videos").glob("*.*") if f.is_file() and f.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv"]]
             video_hint_found = False
             if video_files:
                 v_stem = video_files[0].stem.lower()
                 for kw, cid in COCO_NAME_TO_ID.items():
                     if kw in v_stem:
                         mapped_name = "scooter" if kw in ["activa", "scooter", "moped", "vespa"] else kw
-                        if mapped_name != primary_name:
-                            console.print(
-                                f"[bold yellow]Video '{video_files[0].name}' indicates target class '{mapped_name}' (COCO ID {cid}). "
-                                f"Auto-switching from previous target class '{primary_name}' -> '{mapped_name}'.[/bold yellow]"
-                            )
-                            primary_name = mapped_name
-                            self.classes = [mapped_name]
-                            self.class_map = {mapped_name: 0}
-                            classes_filt = [cid]
-                            self._persist_class_name(mapped_name, [cid])
-                            video_hint_found = True
+                        console.print(
+                            f"[bold yellow]Video '{video_files[0].name}' indicates target class '{mapped_name}' (COCO ID {cid}).[/bold yellow]"
+                        )
+                        primary_name = mapped_name
+                        self.classes = [mapped_name]
+                        self.class_map = {mapped_name: 0}
+                        classes_filt = [cid]
+                        self._persist_class_name(mapped_name, [cid], conf_threshold=conf)
+                        video_hint_found = True
                         break
 
-            if not video_hint_found:
-                # Override default [3, 1, 2] if target class is not a vehicle
-                if classes_filt == [3, 1, 2] and primary_name not in ["scooter", "motorcycle", "bike", "bicycle", "car"]:
-                    classes_filt = None
-
-                if classes_filt is None:
-                    if primary_name in COCO_NAME_TO_ID:
-                        classes_filt = [COCO_NAME_TO_ID[primary_name]]
-                    else:
-                        try:
-                            from ultralytics import RTDETR
-                            temp_m = RTDETR(m_name)
-                            for idx, name in getattr(temp_m, "names", {}).items():
-                                if name.lower() in primary_name or primary_name in name.lower():
-                                    classes_filt = [int(idx)]
-                                    break
-                        except Exception:
-                            pass
-
-            console.print(f"[bold cyan]Auto-labeling target class '{primary_name}' with COCO filter {classes_filt}...[/bold cyan]")
-            stats = self.auto_annotate_with_model(model_name=m_name, conf_threshold=conf, classes_filter=classes_filt)
-
-            # If initial filter resulted in 0 bounding boxes, auto-discover dominant class
-            non_empty_labels = [f for f in self.labels_dir.glob("*.txt") if f.stat().st_size > 0]
-            if not non_empty_labels:
-                console.print(f"[bold yellow]No objects detected for '{primary_name}'. Scanning frames to auto-discover dominant objects...[/bold yellow]")
-                discovered = self._discover_dominant_class(model_name=m_name, conf=conf)
+            # If class is generic or no filter is configured, discover prominent object
+            if not video_hint_found and (is_generic or classes_filt is None):
+                console.print("[bold yellow]Generic class or empty filter detected. Scanning frames for the most prominent object...[/bold yellow]")
+                discovered = self._discover_prominent_class(model_name=m_name, conf=0.25)
                 if discovered:
-                    disc_name, disc_cid = discovered
-                    console.print(f"[bold green]Auto-detected dominant object '{disc_name}' (COCO ID {disc_cid}). Re-annotating frames...[/bold green]")
+                    disc_name, disc_cid, disc_conf = discovered
+                    console.print(
+                        f"[bold green]Prominent object identified: '{disc_name}' (COCO ID {disc_cid}) "
+                        f"with peak confidence {disc_conf:.2f}.[/bold green]"
+                    )
                     primary_name = disc_name
                     self.classes = [disc_name]
                     self.class_map = {disc_name: 0}
-                    self._persist_class_name(disc_name, [disc_cid])
+                    classes_filt = [disc_cid]
+                    self._persist_class_name(disc_name, [disc_cid], conf_threshold=conf)
+
+            # If still resolving a named class
+            if classes_filt is None:
+                if primary_name in COCO_NAME_TO_ID:
+                    classes_filt = [COCO_NAME_TO_ID[primary_name]]
+                else:
+                    try:
+                        from ultralytics import RTDETR
+                        temp_m = RTDETR(m_name)
+                        for idx, name in getattr(temp_m, "names", {}).items():
+                            if name.lower() in primary_name or primary_name in name.lower():
+                                classes_filt = [int(idx)]
+                                break
+                    except Exception:
+                        pass
+
+            console.print(f"[bold cyan]Auto-labeling target class '{primary_name}' (filter: {classes_filt}, conf: {conf:.2f})...[/bold cyan]")
+            stats = self.auto_annotate_with_model(model_name=m_name, conf_threshold=conf, classes_filter=classes_filt)
+
+            # Fallback if initial filter yielded zero detections
+            non_empty_labels = [f for f in self.labels_dir.glob("*.txt") if f.stat().st_size > 0]
+            if not non_empty_labels:
+                console.print(f"[bold yellow]No objects detected for '{primary_name}'. Running fallback discovery...[/bold yellow]")
+                discovered = self._discover_prominent_class(model_name=m_name, conf=0.25)
+                if discovered:
+                    disc_name, disc_cid, disc_conf = discovered
+                    console.print(f"[bold green]Auto-detected prominent object '{disc_name}' (COCO ID {disc_cid}). Annotating frames...[/bold green]")
+                    primary_name = disc_name
+                    self.classes = [disc_name]
+                    self.class_map = {disc_name: 0}
+                    self._persist_class_name(disc_name, [disc_cid], conf_threshold=conf)
                     stats = self.auto_annotate_with_model(model_name=m_name, conf_threshold=conf, classes_filter=[disc_cid])
 
         # Ensure we have non-empty label files with bounding boxes

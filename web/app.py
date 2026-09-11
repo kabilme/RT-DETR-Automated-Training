@@ -259,11 +259,11 @@ def _execute_stage_logic(stage_name: str, cfg: Dict[str, Any], state_mgr: StateM
             auto_label = kwargs.get("auto_label", True)
             if auto_label:
                 cfg.setdefault("annotation", {}).setdefault("auto_label", {})["enabled"] = True
-            classes_filter = kwargs.get("classes_filter", [3, 1, 2])
-            if classes_filter:
+            classes_filter = kwargs.get("classes_filter")
+            if classes_filter is not None:
                 cfg.setdefault("annotation", {}).setdefault("auto_label", {})["classes"] = classes_filter
-            conf_thresh = kwargs.get("conf_threshold", 0.40)
-            if conf_thresh:
+            conf_thresh = kwargs.get("conf_threshold")
+            if conf_thresh is not None:
                 cfg.setdefault("annotation", {}).setdefault("auto_label", {})["conf_threshold"] = float(conf_thresh)
             annotator = AnnotationManager(cfg, state_mgr)
             stats = annotator.run()
