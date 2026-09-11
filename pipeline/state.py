@@ -146,8 +146,12 @@ class StateManager:
                     if not list(Path("workspace/runs").rglob("best.pt")):
                         return False
             elif stage == Stage.EVALUATE:
-                rep = Path("workspace/evaluation/calibration_report.json")
-                if not rep.exists():
+                candidates = [
+                    Path("workspace/evaluation/calibrated_thresholds.json"),
+                    Path("workspace/exported_models/calibrated_thresholds.json"),
+                    Path("workspace/evaluation/precision_calibration_curve.png"),
+                ]
+                if not any(c.exists() for c in candidates):
                     return False
             elif stage == Stage.EXPORT:
                 exp_dir = Path("workspace/exported_models")
