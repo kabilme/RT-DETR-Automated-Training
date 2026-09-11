@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from rich.console import Console
@@ -284,7 +286,7 @@ class FalsePositiveEvaluator:
             plt.legend()
             plt.tight_layout()
             plt.savefig(str(plot_path), dpi=150)
-            plt.close()
+            plt.close("all")
         except Exception as e:
             console.print(f"[yellow]Could not render calibration plot: {e}[/yellow]")
 

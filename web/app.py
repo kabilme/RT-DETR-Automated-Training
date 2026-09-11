@@ -12,6 +12,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import matplotlib
+matplotlib.use("Agg")
 import cv2
 import numpy as np
 import yaml
