@@ -225,6 +225,7 @@ async function resetEntirePipeline() {
 
 async function refreshAllViewsAfterReset() {
   await pollStateAndLogs();
+  if (typeof initConfig === "function") await initConfig();
   if (typeof initGallery === "function") initGallery();
   if (typeof initCalibration === "function") initCalibration();
   if (typeof initArtifacts === "function") initArtifacts();
@@ -378,6 +379,25 @@ async function saveConfig() {
   } catch (e) {
     alert("Failed to save config: " + e.message);
     if (btn) btn.textContent = "Save Changes to config.yaml";
+  }
+}
+
+async function resetConfigToDefault() {
+  if (!confirm("Reset configuration parameters in config.yaml back to system defaults?")) return;
+  const btn = document.getElementById("btnResetConfig");
+  if (btn) btn.textContent = "Resetting...";
+  try {
+    const res = await fetch("/api/config/reset", { method: "POST" });
+    if (res.ok) {
+      await initConfig();
+      alert("✅ config.yaml has been restored to default template.");
+    } else {
+      alert("Failed to reset configuration.");
+    }
+  } catch (e) {
+    alert("Network error resetting config: " + e.message);
+  } finally {
+    if (btn) btn.textContent = "Reset to Defaults";
   }
 }
 

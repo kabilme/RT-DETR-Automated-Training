@@ -451,13 +451,31 @@ def reset_stage(stage_name: str):
 
 @app.post("/api/pipeline/reset")
 def reset_entire_pipeline():
-    """Resets the entire pipeline, all stages to PENDING, and purges all workspace data."""
+    """Resets the entire pipeline, all stages to PENDING, purges all workspace data, and restores default config."""
     global PIPELINE_RUNNING, CURRENT_RUNNING_STAGE
     PIPELINE_RUNNING = False
     CURRENT_RUNNING_STAGE = None
     STATE_MGR.reset_all(clean_disk=True)
-    append_log("Reset entire pipeline: all generated workspace data cleared.")
-    return {"status": "success", "message": "All pipeline data cleared successfully"}
+
+    # Restore default config.yaml
+    default_cfg = Path("config.default.yaml")
+    if default_cfg.exists():
+        shutil.copy2(default_cfg, Path("config.yaml"))
+
+    append_log("Reset entire pipeline: all generated workspace data cleared and config.yaml restored to default.")
+    return {"status": "success", "message": "All pipeline data cleared and configuration restored to default"}
+
+
+@app.post("/api/config/reset")
+def reset_config_endpoint():
+    """Restores config.yaml to the canonical default template."""
+    default_cfg = Path("config.default.yaml")
+    if default_cfg.exists():
+        shutil.copy2(default_cfg, Path("config.yaml"))
+        append_log("Restored config.yaml to default template.")
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    raise HTTPException(status_code=404, detail="Default config template not found.")
 
 
 @app.get("/api/gallery/inspection")
