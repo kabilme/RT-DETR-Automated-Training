@@ -36,13 +36,13 @@ extraction:
 annotation:
   annotation_dir: "data/annotations" # Folder with manual annotations (YOLO .txt, Pascal VOC .xml, COCO .json)
   class_names:                       # List of class names (matching class index 0, 1, 2...)
-    - "scooter"
+    - "chair"
   
   auto_label:
     enabled: true                    # Enable to automatically bootstrap annotations with pre-trained AI model
     model: "rtdetr-l.pt"             # Base model for pseudo-labeling
     conf_threshold: 0.30             # Confidence threshold for pseudo-labels
-    classes: [3, 1, 2]               # COCO classes: 3=motorcycle/scooter, 1=bicycle, 2=car
+    classes: [56]                    # COCO classes: 56=chair (or auto-resolved)
 
 # Stage 3: Dataset Preparation & False-Positive Suppression
 dataset:

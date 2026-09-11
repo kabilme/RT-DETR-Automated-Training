@@ -17,6 +17,19 @@ from rich.console import Console
 console = Console()
 
 
+COCO_80_NAMES = {
+    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
+    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
+    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
+    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 36: 'skateboard', 37: 'surfboard',
+    38: 'tennis racket', 39: 'bottle', 40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl', 46: 'banana', 47: 'apple',
+    48: 'sandwich', 49: 'orange', 50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 55: 'cake', 56: 'chair', 57: 'couch',
+    58: 'potted plant', 59: 'bed', 60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote', 66: 'keyboard', 67: 'cell phone',
+    68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear',
+    78: 'hair drier', 79: 'toothbrush'
+}
+
+
 class FalsePositiveFreeDetector:
     """Detects objects while strictly suppressing false positives using calibrated operating profiles."""
 
@@ -29,39 +42,49 @@ class FalsePositiveFreeDetector:
         self.model_path = Path(model_path)
         self.imgsz = imgsz
         self.is_onnx = self.model_path.suffix.lower() == ".onnx"
+        self.is_pretrained_base = "rtdetr-l" in self.model_path.name.lower()
 
-        # Load calibration profile
-        self.calib_data = self._load_calibration(calibration_path)
-        self.class_thresholds = self.calib_data.get("class_thresholds", {})
-        self.global_threshold = float(self.calib_data.get("global_calibrated_threshold", 0.50))
+        # Load calibration profile if this is a custom-trained model
+        if not self.is_pretrained_base:
+            self.calib_data = self._load_calibration(calibration_path)
+            self.class_thresholds = self.calib_data.get("class_thresholds", {})
+            self.global_threshold = float(self.calib_data.get("global_calibrated_threshold", 0.15))
+        else:
+            self.calib_data = {}
+            self.class_thresholds = {}
+            self.global_threshold = 0.25
+
         geom = self.calib_data.get("geometric_filters", {})
-        self.min_box_area = float(geom.get("min_box_area", 100))
-        self.aspect_range = geom.get("aspect_ratio_range", [0.1, 10.0])
+        self.min_box_area = float(geom.get("min_box_area", 50 if self.is_pretrained_base else 100))
+        self.aspect_range = geom.get("aspect_ratio_range", [0.05, 20.0] if self.is_pretrained_base else [0.1, 10.0])
 
         # Build class name mapping
-        self.class_names = {}
-        for cname, cinfo in self.class_thresholds.items():
-            cid = cinfo.get("class_id")
-            if cid is not None:
-                self.class_names[cid] = cname
+        if self.is_pretrained_base:
+            self.class_names = dict(COCO_80_NAMES)
+        else:
+            self.class_names = {}
+            for cname, cinfo in self.class_thresholds.items():
+                cid = cinfo.get("class_id")
+                if cid is not None:
+                    self.class_names[cid] = cname
 
-        # Fallback to dataset.yaml
-        if not self.class_names:
-            try:
-                import yaml
-                for yml_path in ["workspace/dataset/dataset.yaml", "config.yaml"]:
-                    if Path(yml_path).exists():
-                        with open(yml_path, "r", encoding="utf-8") as f:
-                            d_yaml = yaml.safe_load(f)
-                            names = d_yaml.get("names", {}) or d_yaml.get("annotation", {}).get("class_names", [])
-                            if isinstance(names, dict):
-                                self.class_names = {int(k): str(v) for k, v in names.items()}
-                                break
-                            elif isinstance(names, list):
-                                self.class_names = {i: str(n) for i, n in enumerate(names)}
-                                break
-            except Exception:
-                pass
+            # Fallback to dataset.yaml or config.yaml
+            if not self.class_names:
+                try:
+                    import yaml
+                    for yml_path in ["workspace/dataset/dataset.yaml", "config.yaml"]:
+                        if Path(yml_path).exists():
+                            with open(yml_path, "r", encoding="utf-8") as f:
+                                d_yaml = yaml.safe_load(f)
+                                names = d_yaml.get("names", {}) or d_yaml.get("annotation", {}).get("class_names", [])
+                                if isinstance(names, dict):
+                                    self.class_names = {int(k): str(v) for k, v in names.items()}
+                                    break
+                                elif isinstance(names, list):
+                                    self.class_names = {i: str(n) for i, n in enumerate(names)}
+                                    break
+                except Exception:
+                    pass
 
         # Load backend engine
         if self.is_onnx:
@@ -73,6 +96,9 @@ class FalsePositiveFreeDetector:
             from ultralytics import RTDETR
             self.model = RTDETR(str(self.model_path))
             self.session = None
+            if hasattr(self.model, "names") and self.model.names:
+                if self.is_pretrained_base or len(self.model.names) > 1:
+                    self.class_names = {int(k): str(v) for k, v in self.model.names.items()}
 
     def _load_calibration(self, calib_path: Optional[str]) -> Dict[str, Any]:
         candidates = []

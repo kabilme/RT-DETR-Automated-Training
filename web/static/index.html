@@ -314,6 +314,13 @@
         </div>
 
         <div class="form-grid">
+          <!-- Target Class -->
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label" style="color: var(--accent-cyan); font-weight: 700;">Target Object Class</label>
+            <input type="text" id="cfg_class_name" class="form-input" placeholder="e.g. chair, scooter, person, car, dog">
+            <span class="form-hint">The primary object you want the model to detect (e.g. 'chair' / 'narkali', 'scooter', 'car', 'person').</span>
+          </div>
+
           <!-- Extraction -->
           <div class="form-group">
             <label class="form-label">Extraction Sample FPS</label>
@@ -479,8 +486,10 @@
           <div class="form-group" style="margin-bottom: 1.25rem;">
             <label class="form-label">Select Deployment Engine</label>
             <select id="inferModelSelect" class="form-input">
-              <option value="onnx">ONNX Runtime (Zero-FP: best.onnx)</option>
-              <option value="pt">PyTorch Model (best.pt)</option>
+              <option value="pretrained_pt" selected>Universal Pretrained RT-DETR (rtdetr-l.pt - 80 Classes / High Accuracy)</option>
+              <option value="pretrained_onnx">Universal Pretrained ONNX (rtdetr-l.onnx - 80 Classes)</option>
+              <option value="onnx">Trained Custom Model (Zero-FP ONNX: best.onnx)</option>
+              <option value="pt">Trained Custom Model (PyTorch: best.pt)</option>
             </select>
           </div>
 

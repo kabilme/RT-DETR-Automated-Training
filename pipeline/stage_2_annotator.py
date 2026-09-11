@@ -20,6 +20,22 @@ from pipeline.state import Stage, StateManager
 console = Console()
 
 
+COCO_NAME_TO_ID = {
+    "person": 0, "human": 0, "people": 0,
+    "bicycle": 1, "bike": 1, "cycle": 1,
+    "car": 2, "automobile": 2, "vehicle": 2, "van": 2,
+    "motorcycle": 3, "scooter": 3, "moped": 3, "activa": 3, "vespa": 3,
+    "airplane": 4, "bus": 5, "train": 6, "truck": 7, "boat": 8,
+    "traffic light": 9, "bench": 13, "bird": 14, "cat": 15, "dog": 16,
+    "backpack": 24, "umbrella": 25, "handbag": 26, "bottle": 39, "cup": 41,
+    "bowl": 45, "chair": 56, "narkali": 56, "seat": 56, "armchair": 56,
+    "couch": 57, "sofa": 57, "potted plant": 58, "bed": 59,
+    "dining table": 60, "table": 60, "desk": 60, "tv": 62, "laptop": 63,
+    "mouse": 64, "remote": 65, "keyboard": 66, "cell phone": 67, "phone": 67,
+    "book": 73, "clock": 74, "vase": 75, "teddy bear": 77,
+}
+
+
 class AnnotationManager:
     """Manages annotation conversion, pseudo-labeling, and sanity inspections."""
 
@@ -225,8 +241,29 @@ class AnnotationManager:
         # If no manual annotations found, run auto-labeling
         if stats["ingested"] == 0 and self.auto_cfg.get("enabled", True):
             m_name = self.auto_cfg.get("model", "rtdetr-l.pt")
-            conf = float(self.auto_cfg.get("conf_threshold", 0.40))
+            conf = float(self.auto_cfg.get("conf_threshold", 0.30))
             classes_filt = self.auto_cfg.get("classes", None)
+
+            primary_name = str(self.classes[0]).lower().strip() if self.classes else "object"
+            # Override default [3, 1, 2] if target class is not a vehicle
+            if classes_filt == [3, 1, 2] and primary_name not in ["scooter", "motorcycle", "bike", "bicycle", "car"]:
+                classes_filt = None
+
+            if classes_filt is None:
+                if primary_name in COCO_NAME_TO_ID:
+                    classes_filt = [COCO_NAME_TO_ID[primary_name]]
+                else:
+                    try:
+                        from ultralytics import RTDETR
+                        temp_m = RTDETR(m_name)
+                        for idx, name in getattr(temp_m, "names", {}).items():
+                            if name.lower() in primary_name or primary_name in name.lower():
+                                classes_filt = [int(idx)]
+                                break
+                    except Exception:
+                        pass
+
+            console.print(f"[bold cyan]Auto-labeling target class '{primary_name}' with COCO filter {classes_filt}...[/bold cyan]")
             stats = self.auto_annotate_with_model(model_name=m_name, conf_threshold=conf, classes_filter=classes_filt)
 
         # Ensure we have non-empty label files with bounding boxes

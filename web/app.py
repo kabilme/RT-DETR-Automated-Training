@@ -548,7 +548,11 @@ def run_live_inference(
             )
 
         # Determine model path
-        if model_choice == "onnx":
+        if model_choice == "pretrained_pt":
+            candidates = [Path("rtdetr-l.pt")]
+        elif model_choice == "pretrained_onnx":
+            candidates = [Path("workspace/exported_models/rtdetr-l.onnx"), Path("rtdetr-l.onnx")]
+        elif model_choice == "onnx":
             candidates = [
                 Path("workspace/exported_models/best.onnx"),
                 Path("workspace/runs/train/rtdetr_run/weights/best.onnx"),
@@ -828,7 +832,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8000):
     print(f" RT-DETR Interactive Web Studio running at:")
     print(f" >>> http://localhost:{port} <<<")
     print(f"=======================================================\n")
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    uvicorn.run("web.app:app", host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":

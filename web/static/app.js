@@ -304,6 +304,10 @@ async function initConfig() {
     const fp = ds.false_positive_mitigation || {};
     const trn = currentConfig.training || {};
     const ev = currentConfig.evaluation || {};
+    const ann = currentConfig.annotation || {};
+
+    const primaryClass = (ann.class_names && ann.class_names.length) ? ann.class_names[0] : "chair";
+    setValue("cfg_class_name", primaryClass);
 
     setValue("cfg_sample_fps", ext.sample_fps || 2.0);
     setValue("cfg_blur_var", blur.min_laplacian_variance || 80.0);
@@ -340,6 +344,10 @@ async function saveConfig() {
   if (!currentConfig.dataset.false_positive_mitigation) currentConfig.dataset.false_positive_mitigation = {};
   if (!currentConfig.training) currentConfig.training = {};
   if (!currentConfig.evaluation) currentConfig.evaluation = {};
+  if (!currentConfig.annotation) currentConfig.annotation = {};
+
+  const cName = getValue("cfg_class_name", "chair").trim();
+  currentConfig.annotation.class_names = [cName];
 
   currentConfig.extraction.sample_fps = parseFloat(getValue("cfg_sample_fps", 2.0));
   currentConfig.extraction.blur_filter.min_laplacian_variance = parseFloat(getValue("cfg_blur_var", 80.0));
