@@ -36,6 +36,7 @@ function initTabs() {
       if (targetId === "gallery") initGallery();
       if (targetId === "defense") initCalibration();
       if (targetId === "artifacts") initArtifacts();
+      if (targetId === "infer") loadExistingVideosForInference();
     });
   });
 }
@@ -399,7 +400,149 @@ async function initArtifacts() {
 }
 
 /* ================= LIVE INFERENCE LAB ================= */
+let inferSourceMode = "existing"; // "existing" or "upload"
+let selectedExistingVideo = null;
+let selectedInferenceFile = null;
+
+function showInferNotice(msg, isError = true) {
+  const box = document.getElementById("inferAlertNotice");
+  const txt = document.getElementById("inferAlertText");
+  if (!box || !txt) return;
+  txt.textContent = msg;
+  box.style.display = "flex";
+  if (isError) {
+    box.style.background = "rgba(239, 68, 68, 0.15)";
+    box.style.borderColor = "rgba(239, 68, 68, 0.4)";
+    box.style.color = "#fca5a5";
+  } else {
+    box.style.background = "rgba(16, 185, 129, 0.15)";
+    box.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    box.style.color = "#86efac";
+  }
+}
+
+function hideInferNotice() {
+  const box = document.getElementById("inferAlertNotice");
+  if (box) box.style.display = "none";
+}
+
+function switchInferSource(mode) {
+  inferSourceMode = mode;
+  hideInferNotice();
+  const btnExist = document.getElementById("inferSourceExistingBtn");
+  const btnUp = document.getElementById("inferSourceUploadBtn");
+  const containerExist = document.getElementById("inferExistingVideoContainer");
+  const dropZone = document.getElementById("dropZone");
+
+  if (mode === "existing") {
+    if (btnExist) {
+      btnExist.classList.add("btn-primary");
+      btnExist.classList.remove("btn-secondary");
+    }
+    if (btnUp) {
+      btnUp.classList.add("btn-secondary");
+      btnUp.classList.remove("btn-primary");
+    }
+    if (containerExist) containerExist.style.display = "block";
+    if (dropZone) dropZone.style.display = "none";
+    onExistingVideoChange();
+  } else {
+    if (btnUp) {
+      btnUp.classList.add("btn-primary");
+      btnUp.classList.remove("btn-secondary");
+    }
+    if (btnExist) {
+      btnExist.classList.add("btn-secondary");
+      btnExist.classList.remove("btn-primary");
+    }
+    if (containerExist) containerExist.style.display = "none";
+    if (dropZone) dropZone.style.display = "block";
+    if (selectedInferenceFile) {
+      handleFileSelected(selectedInferenceFile);
+    } else {
+      resetInferPreview();
+    }
+  }
+}
+
+async function loadExistingVideosForInference() {
+  try {
+    const res = await fetch("/api/videos");
+    if (!res.ok) return;
+    const data = await res.json();
+    const select = document.getElementById("inferExistingVideoSelect");
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Choose an uploaded workspace video --</option>';
+    const allVideos = [];
+    (data.positive_videos || []).forEach((v) => allVideos.push({ ...v, tag: "Training Video" }));
+    (data.negative_videos || []).forEach((v) => allVideos.push({ ...v, tag: "Negative Background" }));
+
+    allVideos.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v.filename;
+      opt.textContent = `${v.filename} (${v.tag} • ${v.size_mb} MB • ${v.duration_sec}s)`;
+      select.appendChild(opt);
+    });
+
+    if (allVideos.length > 0 && !selectedExistingVideo) {
+      select.value = allVideos[0].filename;
+      onExistingVideoChange();
+    }
+  } catch (e) {
+    console.debug("Failed loading existing videos for inference:", e);
+  }
+}
+
+function onExistingVideoChange() {
+  hideInferNotice();
+  const select = document.getElementById("inferExistingVideoSelect");
+  if (!select) return;
+  selectedExistingVideo = select.value || null;
+
+  const placeholder = document.getElementById("inferPlaceholder");
+  const resultImg = document.getElementById("inferResultImg");
+  const resultVideo = document.getElementById("inferResultVideo");
+
+  if (resultVideo) {
+    resultVideo.pause();
+    resultVideo.style.display = "none";
+  }
+  if (resultImg) resultImg.style.display = "none";
+
+  if (selectedExistingVideo && placeholder) {
+    placeholder.innerHTML = `
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.9; color: var(--accent-cyan);"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+      <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">${selectedExistingVideo}</div>
+      <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem;">Workspace video selected & ready for calibrated evaluation.</div>
+      <div style="font-size: 0.78rem; color: var(--accent-green); margin-top: 0.35rem; font-weight: 600;">Click "Run Calibrated Detection" below to evaluate zero false positives across all frames.</div>
+    `;
+    placeholder.style.display = "block";
+  } else if (placeholder) {
+    resetInferPreview();
+  }
+}
+
+function resetInferPreview() {
+  const placeholder = document.getElementById("inferPlaceholder");
+  const resultImg = document.getElementById("inferResultImg");
+  const resultVideo = document.getElementById("inferResultVideo");
+  if (resultImg) resultImg.style.display = "none";
+  if (resultVideo) {
+    resultVideo.pause();
+    resultVideo.style.display = "none";
+  }
+  if (placeholder) {
+    placeholder.innerHTML = `
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.5;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <div>Select a workspace video or upload an image/video to run calibrated detection.</div>
+    `;
+    placeholder.style.display = "block";
+  }
+}
+
 function initInferenceLab() {
+  loadExistingVideosForInference();
   const dropZone = document.getElementById("dropZone");
   const fileInput = document.getElementById("inferFileInput");
 
@@ -418,57 +561,131 @@ function initInferenceLab() {
     e.preventDefault();
     dropZone.classList.remove("dragover");
     if (e.dataTransfer.files.length > 0) {
-      selectedFile = e.dataTransfer.files[0];
-      handleFileSelected(selectedFile);
+      selectedInferenceFile = e.dataTransfer.files[0];
+      handleFileSelected(selectedInferenceFile);
     }
   });
 
   fileInput.addEventListener("change", (e) => {
     if (e.target.files.length > 0) {
-      selectedFile = e.target.files[0];
-      handleFileSelected(selectedFile);
+      selectedInferenceFile = e.target.files[0];
+      handleFileSelected(selectedInferenceFile);
     }
   });
 }
 
 function handleFileSelected(file) {
+  if (!file) return;
+  hideInferNotice();
+  selectedInferenceFile = file;
   const placeholder = document.getElementById("inferPlaceholder");
   const resultImg = document.getElementById("inferResultImg");
+  const resultVideo = document.getElementById("inferResultVideo");
+
+  if (resultVideo) {
+    resultVideo.pause();
+    resultVideo.style.display = "none";
+  }
 
   const isVideo = file.type.startsWith("video/") || /\.(mp4|avi|mov|mkv|webm)$/i.test(file.name);
   if (isVideo) {
-    placeholder.innerHTML = `
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.8; color: var(--primary);"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-      <div style="font-weight: 600; color: var(--text-main);">${file.name}</div>
-      <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Video ready for inference. Click "Run Calibrated Detection" to analyze.</div>
-    `;
-    placeholder.style.display = "block";
-    resultImg.style.display = "none";
+    if (placeholder) {
+      placeholder.innerHTML = `
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.85; color: var(--accent-cyan);"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        <div style="font-weight: 700; color: var(--text-primary); font-size: 1rem;">${file.name}</div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.35rem;">File selected (${(file.size / (1024 * 1024)).toFixed(2)} MB).</div>
+        <div style="font-size: 0.75rem; color: var(--accent-green); margin-top: 0.25rem;">Click "Run Calibrated Detection" below to analyze every frame.</div>
+      `;
+      placeholder.style.display = "block";
+    }
+    if (resultImg) resultImg.style.display = "none";
   } else {
     const reader = new FileReader();
     reader.onload = (e) => {
-      resultImg.src = e.target.result;
-      resultImg.style.display = "block";
-      placeholder.style.display = "none";
+      if (resultImg) {
+        resultImg.src = e.target.result;
+        resultImg.style.display = "block";
+      }
+      if (placeholder) placeholder.style.display = "none";
     };
     reader.readAsDataURL(file);
   }
 }
 
 async function submitInference() {
-  if (!selectedFile) {
-    alert("Please select or drop an image or video file first.");
+  hideInferNotice();
+  const btn = document.getElementById("btnRunInference");
+  const fileInput = document.getElementById("inferFileInput");
+
+  // If in upload mode, check file input
+  if (inferSourceMode === "upload") {
+    if (!selectedInferenceFile && fileInput && fileInput.files && fileInput.files.length > 0) {
+      selectedInferenceFile = fileInput.files[0];
+    }
+  }
+
+  const hasExisting = inferSourceMode === "existing" && Boolean(selectedExistingVideo);
+  const hasFile = inferSourceMode === "upload" && Boolean(selectedInferenceFile);
+
+  if (!hasExisting && !hasFile) {
+    const msg = inferSourceMode === "existing"
+      ? "Please select a workspace video from the dropdown first."
+      : "Please select or drop an image or video file first.";
+    showInferNotice(msg, true);
+    if (inferSourceMode === "upload") {
+      const dropZone = document.getElementById("dropZone");
+      if (dropZone) {
+        dropZone.classList.add("shake-element");
+        setTimeout(() => dropZone.classList.remove("shake-element"), 500);
+      }
+      if (fileInput) fileInput.click();
+    }
     return;
   }
 
-  const modelChoice = document.getElementById("inferModelSelect").value;
+  const modelChoice = document.getElementById("inferModelSelect") ? document.getElementById("inferModelSelect").value : "onnx";
   const confOverrideVal = document.getElementById("inferConfOverride") ? document.getElementById("inferConfOverride").value : "";
-  const isVideoFile = selectedFile && (selectedFile.type.startsWith("video/") || /\.(mp4|avi|mov|mkv|webm)$/i.test(selectedFile.name));
-  btn.disabled = true;
-  btn.textContent = isVideoFile ? "Analyzing Entire Video (Calibrating Every Frame)..." : "Detecting (Zero-FP Defense Active)...";
+
+  let isVideo = false;
+  let targetName = "";
+  if (hasExisting) {
+    isVideo = true;
+    targetName = selectedExistingVideo;
+  } else if (selectedInferenceFile) {
+    isVideo = selectedInferenceFile.type.startsWith("video/") || /\.(mp4|avi|mov|mkv|webm)$/i.test(selectedInferenceFile.name);
+    targetName = selectedInferenceFile.name;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; border-width: 2px; margin-right: 0.5rem; vertical-align: middle;"></span> Calibrating Every Frame...`;
+  }
+
+  const placeholder = document.getElementById("inferPlaceholder");
+  const resultImg = document.getElementById("inferResultImg");
+  const resultVideo = document.getElementById("inferResultVideo");
+
+  if (isVideo && placeholder) {
+    placeholder.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2.5rem 1rem;">
+        <div class="spinner" style="width: 44px; height: 44px; border-width: 4px; margin-bottom: 1.25rem;"></div>
+        <div style="font-weight: 700; color: var(--text-primary); font-size: 1.1rem;">Calibrating Every Video Frame...</div>
+        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; max-width: 420px; text-align: center; line-height: 1.5;">
+          Running RT-DETR Zero-False-Positive model on <strong>${targetName}</strong> across all frames. Live progress streaming to terminal below.
+        </div>
+      </div>
+    `;
+    placeholder.style.display = "block";
+    if (resultImg) resultImg.style.display = "none";
+    if (resultVideo) resultVideo.style.display = "none";
+  }
 
   const formData = new FormData();
-  formData.append("file", selectedFile);
+  if (hasExisting) {
+    formData.append("existing_video", selectedExistingVideo);
+  } else {
+    formData.append("file", selectedInferenceFile);
+  }
   formData.append("model_choice", modelChoice);
   if (confOverrideVal) {
     formData.append("conf_override", confOverrideVal);
@@ -482,10 +699,7 @@ async function submitInference() {
 
     if (res.ok) {
       const data = await res.json();
-      const resultImg = document.getElementById("inferResultImg");
-      const resultVideo = document.getElementById("inferResultVideo");
       const downloadBtn = document.getElementById("btnDownloadVideo");
-      const placeholder = document.getElementById("inferPlaceholder");
       const badgeCount = document.getElementById("inferBadgeCount");
       const metricsRow = document.getElementById("inferMetricsRow");
       const framesBadge = document.getElementById("metricFramesBadge");
@@ -494,12 +708,13 @@ async function submitInference() {
       if (placeholder) placeholder.style.display = "none";
 
       if (data.is_video) {
-        // Video result: play annotated video in player
-        resultImg.style.display = "none";
-        resultVideo.src = `${data.annotated_video_url}?t=${new Date().getTime()}`;
-        resultVideo.style.display = "block";
-        resultVideo.load();
-        resultVideo.play().catch(() => {});
+        if (resultImg) resultImg.style.display = "none";
+        if (resultVideo) {
+          resultVideo.src = `${data.annotated_video_url}?t=${Date.now()}`;
+          resultVideo.style.display = "block";
+          resultVideo.load();
+          resultVideo.play().catch(() => {});
+        }
 
         if (downloadBtn) {
           downloadBtn.href = data.annotated_video_url;
@@ -512,10 +727,11 @@ async function submitInference() {
           totalFramesVal.textContent = `${data.total_frames} (${data.duration_sec}s)`;
         }
 
-        badgeCount.textContent = `${data.total_frames} Frames • ${data.detections_count} Total Detections`;
-        badgeCount.style.display = "inline-flex";
+        if (badgeCount) {
+          badgeCount.textContent = `${data.total_frames} Frames • ${data.detections_count} Calibrated Objects`;
+          badgeCount.style.display = "inline-flex";
+        }
       } else {
-        // Single image result
         if (resultVideo) {
           resultVideo.pause();
           resultVideo.style.display = "none";
@@ -523,27 +739,42 @@ async function submitInference() {
         if (downloadBtn) downloadBtn.style.display = "none";
         if (framesBadge) framesBadge.style.display = "none";
 
-        resultImg.src = `${data.annotated_image_url}?t=${new Date().getTime()}`;
-        resultImg.style.display = "block";
+        if (resultImg) {
+          resultImg.src = `${data.annotated_image_url}?t=${Date.now()}`;
+          resultImg.style.display = "block";
+        }
 
-        badgeCount.textContent = `${data.detections_count} Calibrated Object(s)`;
-        badgeCount.style.display = "inline-flex";
+        if (badgeCount) {
+          badgeCount.textContent = `${data.detections_count} Calibrated Object(s)`;
+          badgeCount.style.display = "inline-flex";
+        }
       }
 
-      metricsRow.style.display = "flex";
-      document.getElementById("metricModelUsed").textContent = data.model_used;
-      document.getElementById("metricCalibFloor").textContent = `≥ ${data.calibrated_threshold}`;
-      document.getElementById("metricDetCount").textContent = data.detections_count;
+      if (metricsRow) metricsRow.style.display = "flex";
+      const elModel = document.getElementById("metricModelUsed");
+      if (elModel) elModel.textContent = data.model_used;
+      const elFloor = document.getElementById("metricCalibFloor");
+      if (elFloor) elFloor.textContent = `≥ ${data.calibrated_threshold}`;
+      const elCount = document.getElementById("metricDetCount");
+      if (elCount) elCount.textContent = data.detections_count;
+
+      showInferNotice(`Detection complete: ${data.detections_count} total detections found with zero false positives.`, false);
 
     } else {
-      const err = await res.json();
-      alert(`Inference failed: ${err.detail || "Server error"}`);
+      let errMsg = "Server error";
+      try {
+        const err = await res.json();
+        errMsg = err.detail || errMsg;
+      } catch (_) {}
+      showInferNotice(`Inference failed: ${errMsg}`, true);
     }
   } catch (e) {
-    alert("Network error running inference: " + e.message);
+    showInferNotice("Network error running inference: " + e.message, true);
   } finally {
-    btn.disabled = false;
-    btn.textContent = "Run Calibrated Detection";
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Run Calibrated Detection";
+    }
   }
 }
 

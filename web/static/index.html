@@ -484,13 +484,42 @@
             <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">Leave empty to enforce zero false positives via the calibrated operating floor.</div>
           </div>
 
+          <!-- Input Source Selector -->
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Video / Image Source</label>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <button type="button" id="inferSourceExistingBtn" class="btn btn-primary" style="flex: 1; padding: 0.45rem 0.5rem; font-size: 0.8rem; justify-content: center;" onclick="switchInferSource('existing')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Workspace Video
+              </button>
+              <button type="button" id="inferSourceUploadBtn" class="btn btn-secondary" style="flex: 1; padding: 0.45rem 0.5rem; font-size: 0.8rem; justify-content: center;" onclick="switchInferSource('upload')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Browse / Drop File
+              </button>
+            </div>
+
+            <!-- Existing Video Selector -->
+            <div id="inferExistingVideoContainer">
+              <select id="inferExistingVideoSelect" class="form-input" onchange="onExistingVideoChange()">
+                <option value="">-- Choose an uploaded workspace video --</option>
+              </select>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Instantly test against training or negative background videos already in workspace.</div>
+            </div>
+          </div>
+
           <!-- Drag and Drop Zone -->
-          <div id="dropZone" class="drop-zone">
+          <div id="dropZone" class="drop-zone" style="display: none;">
             <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.35rem;">Choose an image or video</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">or drag & drop here (.jpg, .png, .mp4, .mov)</div>
             <input type="file" id="inferFileInput" accept="image/*,video/*" style="display: none;">
             <button class="btn btn-secondary" onclick="document.getElementById('inferFileInput').click()">Browse File</button>
+          </div>
+
+          <!-- Inline Alert Notice (Zero Silent Fails) -->
+          <div id="inferAlertNotice" style="display: none; padding: 0.65rem 0.85rem; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; font-size: 0.82rem; margin-top: 1rem; align-items: center; gap: 0.5rem;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="inferAlertText">Please select a file or video first.</span>
           </div>
 
           <button id="btnRunInference" class="btn btn-primary" style="width: 100%; margin-top: 1.25rem; justify-content: center; padding: 0.75rem;" onclick="submitInference()">
@@ -577,6 +606,6 @@
 
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2.2"></script>
 </body>
 </html>

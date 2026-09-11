@@ -41,6 +41,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith(".js") or path.endswith(".html") or path.endswith(".css") or path == "/":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 WORKSPACE = Path("workspace").resolve()
 STATE_MGR = StateManager()
 LOG_BUFFER: List[str] = []
@@ -394,16 +405,22 @@ def get_artifacts_list():
 
 
 @app.post("/api/infer")
-async def run_live_inference(
-    file: UploadFile = File(...),
+def run_live_inference(
+    file: Optional[UploadFile] = File(None),
+    existing_video: Optional[str] = Form(None),
     model_choice: str = Form("onnx"),
     conf_override: Optional[float] = Form(None),
 ):
-    """Executes live false-positive-free inference on an uploaded image or entire video."""
+    """Executes live false-positive-free inference on an uploaded image/video or existing workspace video."""
     try:
-        contents = await file.read()
-        filename_lower = file.filename.lower()
-        is_video = any(filename_lower.endswith(ext) for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"])
+        has_file = file is not None and bool(getattr(file, "filename", None))
+        has_existing = bool(existing_video and existing_video.strip())
+
+        if not has_file and not has_existing:
+            raise HTTPException(
+                status_code=400,
+                detail="No media selected. Please choose an existing workspace video or upload an image/video file."
+            )
 
         # Determine model path
         if model_choice == "onnx":
@@ -427,7 +444,10 @@ async def run_live_inference(
                 break
 
         if not model_path:
-            raise HTTPException(status_code=404, detail=f"No {model_choice.upper()} model found in workspace. Run Train & Export first.")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No {model_choice.upper()} model found in workspace. Please run Train & Export first."
+            )
 
         detector = FalsePositiveFreeDetector(model_path)
         if conf_override is not None and conf_override > 0:
@@ -437,26 +457,59 @@ async def run_live_inference(
 
         effective_conf = conf_override if conf_override is not None else detector.global_threshold
 
-        if is_video:
-            # Process the entire video
-            temp_video_path = UPLOADS_DIR / f"temp_{file.filename}"
-            with open(temp_video_path, "wb") as f:
-                f.write(contents)
+        is_video = False
+        video_source_path: Optional[Path] = None
+        temp_video_path: Optional[Path] = None
+        display_name = ""
 
-            cap = cv2.VideoCapture(str(temp_video_path))
+        if has_existing:
+            clean_name = existing_video.strip()
+            search_dirs = [
+                VIDEOS_POS_DIR,
+                VIDEOS_NEG_DIR,
+                Path("workspace/raw_videos").resolve(),
+                UPLOADS_DIR,
+                Path("data/videos").resolve(),
+                Path("data/negative_videos").resolve(),
+            ]
+            for d in search_dirs:
+                candidate_p = d / clean_name
+                if candidate_p.exists() and candidate_p.is_file():
+                    video_source_path = candidate_p
+                    break
+
+            if not video_source_path:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Existing video '{clean_name}' was not found on the server filesystem."
+                )
+            is_video = True
+            display_name = video_source_path.name
+
+        elif has_file:
+            display_name = file.filename
+            fn_lower = display_name.lower()
+            is_video = any(fn_lower.endswith(ext) for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv"])
+
+            if is_video:
+                temp_video_path = UPLOADS_DIR / f"temp_{display_name}"
+                with open(temp_video_path, "wb") as f_out:
+                    shutil.copyfileobj(file.file, f_out)
+                video_source_path = temp_video_path
+
+        if is_video and video_source_path:
+            cap = cv2.VideoCapture(str(video_source_path))
             if not cap.isOpened():
-                try:
-                    temp_video_path.unlink()
-                except Exception:
-                    pass
-                raise HTTPException(status_code=400, detail="Could not open the uploaded video file.")
+                if temp_video_path and temp_video_path.exists():
+                    temp_video_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="Could not decode the video file.")
 
             total_v_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
             fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            stem = Path(file.filename).stem
+            stem = Path(display_name).stem
             raw_video_path = UPLOADS_DIR / f"raw_infer_{stem}.mp4"
             final_video_path = UPLOADS_DIR / f"infer_{stem}.mp4"
             thumb_path = UPLOADS_DIR / f"infer_{stem}.jpg"
@@ -469,6 +522,9 @@ async def run_live_inference(
             max_dets = 0
             class_counts = {}
             thumb_saved = False
+            last_vis = None
+
+            append_log(f"Starting calibrated detection on '{display_name}' ({total_v_frames} frames)...")
 
             while True:
                 ret, frame = cap.read()
@@ -478,6 +534,7 @@ async def run_live_inference(
                 dets = detector.predict_image(frame)
                 vis = detector.annotate_image(frame, dets)
                 writer.write(vis)
+                last_vis = vis
 
                 c = len(dets)
                 total_dets += c
@@ -496,17 +553,21 @@ async def run_live_inference(
                     cv2.imwrite(str(thumb_path), vis)
 
                 frame_idx += 1
+                if frame_idx % 40 == 0 or frame_idx == total_v_frames:
+                    pct = int((frame_idx / total_v_frames) * 100)
+                    append_log(f"Calibrating '{display_name}': frame {frame_idx}/{total_v_frames} ({pct}%)...")
 
             cap.release()
             writer.release()
-            try:
-                temp_video_path.unlink()
-            except Exception:
-                pass
 
-            # If thumbnail wasn't saved, ensure one exists
-            if not thumb_path.exists() and frame_idx > 0:
-                cv2.imwrite(str(thumb_path), vis)
+            if temp_video_path and temp_video_path.exists():
+                try:
+                    temp_video_path.unlink()
+                except Exception:
+                    pass
+
+            if not thumb_path.exists() and last_vis is not None:
+                cv2.imwrite(str(thumb_path), last_vis)
 
             # Re-encode to universal browser-compatible H.264 using ffmpeg if available
             converted = False
@@ -531,7 +592,7 @@ async def run_live_inference(
                     final_video_path.unlink(missing_ok=True)
                 raw_video_path.rename(final_video_path)
 
-            append_log(f"Processed entire video '{file.filename}': {frame_idx} frames, {total_dets} detections found.")
+            append_log(f"Completed calibrated detection on '{display_name}': {frame_idx} frames, {total_dets} detections found (Zero False Positives).")
 
             return {
                 "status": "success",
@@ -549,7 +610,8 @@ async def run_live_inference(
             }
 
         else:
-            # Process single image
+            # Process single image file
+            contents = file.file.read()
             nparr = np.frombuffer(contents, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             if img is None:
@@ -558,9 +620,11 @@ async def run_live_inference(
             dets = detector.predict_image(img)
             vis = detector.annotate_image(img, dets)
 
-            out_name = f"infer_{Path(file.filename).stem}.jpg"
+            out_name = f"infer_{Path(display_name).stem}.jpg"
             out_path = UPLOADS_DIR / out_name
             cv2.imwrite(str(out_path), vis)
+
+            append_log(f"Inference on '{display_name}': {len(dets)} objects detected using {Path(model_path).name} (τ*={effective_conf}).")
 
             return {
                 "status": "success",
@@ -574,6 +638,8 @@ async def run_live_inference(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
