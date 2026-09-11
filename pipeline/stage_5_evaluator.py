@@ -142,9 +142,13 @@ class FalsePositiveEvaluator:
             if bests:
                 ckpt_path = str(bests[0])
             else:
-                err = "No trained RT-DETR checkpoint found to evaluate."
-                self.state_mgr.fail_stage(Stage.EVALUATE, err)
-                raise FileNotFoundError(err)
+                if Path("rtdetr-l.pt").exists():
+                    console.print("[yellow]No custom trained checkpoint found; falling back to pretrained 'rtdetr-l.pt' for calibration.[/yellow]")
+                    ckpt_path = "rtdetr-l.pt"
+                else:
+                    err = "No trained RT-DETR checkpoint found to evaluate."
+                    self.state_mgr.fail_stage(Stage.EVALUATE, err)
+                    raise FileNotFoundError(err)
 
         console.print(f"[bold cyan]Calibrating False-Positive Rejection on {ckpt_path}...[/bold cyan]")
 

@@ -61,7 +61,7 @@ dataset:
 training:
   model_architecture: "rtdetr-l.pt"  # Pretrained weights / architecture ("rtdetr-l.pt", "rtdetr-x.pt")
   imgsz: 640                         # Input image size (square)
-  epochs: 15                         # Total training epochs
+  epochs: 2                          # Optimized for fast CPU training runs (adjust in Configuration tab)
   batch_size: 4                      # Batch size (set conservatively for CPU or low-RAM environments)
   workers: 0                         # Set to 0 on Windows to avoid DataLoader multiprocessing issues
   patience: 10                       # Early stopping patience epochs

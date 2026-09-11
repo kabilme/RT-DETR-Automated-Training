@@ -58,6 +58,7 @@ LOG_BUFFER: List[str] = []
 MAX_LOGS = 250
 PIPELINE_RUNNING = False
 CURRENT_RUNNING_STAGE: Optional[str] = None
+PIPELINE_STOP_REQUESTED: bool = False
 
 
 def append_log(msg: str):
@@ -242,16 +243,9 @@ def delete_video_file(video_type: str, filename: str):
     raise HTTPException(status_code=404, detail=f"Video file '{unquoted_name}' not found")
 
 
-def _run_stage_task(stage_name: str, **kwargs):
-    global PIPELINE_RUNNING, CURRENT_RUNNING_STAGE
-    PIPELINE_RUNNING = True
-    CURRENT_RUNNING_STAGE = stage_name
-    append_log(f">>> Commencing Stage: {stage_name.upper()} <<<")
-
+def _execute_stage_logic(stage_name: str, cfg: Dict[str, Any], state_mgr: StateManager, **kwargs) -> bool:
+    """Executes an individual pipeline stage's logic and returns True on success, False on error."""
     try:
-        cfg = load_config("config.yaml")
-        state_mgr = StateManager()
-
         if stage_name == "extract":
             video_path = kwargs.get("video_path")
             extractor = FrameExtractor(cfg, state_mgr)
@@ -295,11 +289,84 @@ def _run_stage_task(stage_name: str, **kwargs):
             stats = exporter.export(ckpt)
             append_log(f"Export completed. Ready formats: {list(stats.keys())}")
 
+        return True
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         append_log(f"[ERROR in {stage_name.upper()}]: {str(e)}")
+        try:
+            state_mgr.fail_stage(Stage(stage_name), str(e))
+        except Exception:
+            pass
+        return False
+
+
+def _run_stage_task(stage_name: str, **kwargs):
+    global PIPELINE_RUNNING, CURRENT_RUNNING_STAGE
+    PIPELINE_RUNNING = True
+    CURRENT_RUNNING_STAGE = stage_name
+    append_log(f">>> Commencing Stage: {stage_name.upper()} <<<")
+
+    try:
+        cfg = load_config("config.yaml")
+        state_mgr = StateManager()
+        _execute_stage_logic(stage_name, cfg, state_mgr, **kwargs)
     finally:
         PIPELINE_RUNNING = False
         CURRENT_RUNNING_STAGE = None
+
+
+def _run_full_pipeline_task(from_stage: Optional[str] = None, force: bool = False, **kwargs):
+    global PIPELINE_RUNNING, CURRENT_RUNNING_STAGE, PIPELINE_STOP_REQUESTED
+    PIPELINE_RUNNING = True
+    PIPELINE_STOP_REQUESTED = False
+
+    append_log("==================================================")
+    append_log(">>> Starting End-to-End Automated Pipeline Run <<<")
+    append_log("==================================================")
+
+    try:
+        cfg = load_config("config.yaml")
+        state_mgr = StateManager()
+
+        stage_order_names = [s.value for s in STAGE_ORDER]
+        start_idx = stage_order_names.index(from_stage) if from_stage and from_stage in stage_order_names else 0
+
+        for idx in range(start_idx, len(STAGE_ORDER)):
+            if PIPELINE_STOP_REQUESTED:
+                append_log("[PIPELINE STOPPED by user request]")
+                break
+
+            stage = STAGE_ORDER[idx]
+            s_name = stage.value
+
+            state_mgr.data = state_mgr._load()
+            # If already completed and not force, skip to next stage
+            if not force and state_mgr.is_completed(stage):
+                append_log(f"Stage {idx+1}/{len(STAGE_ORDER)}: '{s_name.upper()}' is already completed. Advancing to next stage...")
+                continue
+
+            CURRENT_RUNNING_STAGE = s_name
+            append_log(f"\n>>> [Stage {idx+1}/{len(STAGE_ORDER)}] Commencing Stage: {s_name.upper()} <<<")
+
+            success = _execute_stage_logic(s_name, cfg, state_mgr, **kwargs)
+            if not success:
+                append_log(f"[PIPELINE HALTED]: Stage {s_name.upper()} failed. Resolve error before resuming.")
+                break
+
+            append_log(f"✓ Stage {s_name.upper()} completed successfully. Advancing to next stage...")
+
+        if not PIPELINE_STOP_REQUESTED and state_mgr.is_completed(Stage.EXPORT):
+            append_log("\n=======================================================")
+            append_log("🎉 ALL 6 STAGES FINISHED! End-to-end pipeline complete.")
+            append_log("=======================================================")
+
+    except Exception as e:
+        append_log(f"[CRITICAL PIPELINE ERROR]: {str(e)}")
+    finally:
+        PIPELINE_RUNNING = False
+        CURRENT_RUNNING_STAGE = None
+        PIPELINE_STOP_REQUESTED = False
 
 
 @app.post("/api/stage/run/{stage_name}")
@@ -307,7 +374,7 @@ def run_stage(stage_name: str, payload: Dict[str, Any] = None):
     """Launches an individual pipeline stage in a background worker thread."""
     global PIPELINE_RUNNING
     if PIPELINE_RUNNING:
-        raise HTTPException(status_code=400, detail="Another stage is currently running.")
+        raise HTTPException(status_code=400, detail="Another stage or pipeline run is currently in progress.")
 
     if stage_name not in [s.value for s in STAGE_ORDER]:
         raise HTTPException(status_code=400, detail=f"Invalid stage: {stage_name}")
@@ -316,6 +383,33 @@ def run_stage(stage_name: str, payload: Dict[str, Any] = None):
     t = threading.Thread(target=_run_stage_task, args=(stage_name,), kwargs=kwargs, daemon=True)
     t.start()
     return {"status": "started", "stage": stage_name}
+
+
+@app.post("/api/pipeline/run")
+def run_full_pipeline(payload: Dict[str, Any] = None):
+    """Launches the full automated end-to-end pipeline execution across all stages."""
+    global PIPELINE_RUNNING
+    if PIPELINE_RUNNING:
+        raise HTTPException(status_code=400, detail="Another stage or pipeline run is currently in progress.")
+
+    kwargs = payload or {}
+    from_stage = kwargs.get("from_stage")
+    force = kwargs.get("force", False)
+
+    t = threading.Thread(target=_run_full_pipeline_task, kwargs={"from_stage": from_stage, "force": force}, daemon=True)
+    t.start()
+    return {"status": "started", "mode": "full_pipeline"}
+
+
+@app.post("/api/pipeline/stop")
+def stop_pipeline():
+    """Requests stopping the ongoing automated pipeline execution."""
+    global PIPELINE_STOP_REQUESTED
+    if not PIPELINE_RUNNING:
+        return {"status": "idle", "message": "No pipeline is currently running."}
+    PIPELINE_STOP_REQUESTED = True
+    append_log("Pipeline stop requested by user. Will halt cleanly before starting the next stage.")
+    return {"status": "stopping", "message": "Stop signal sent"}
 
 
 @app.post("/api/stage/reset/{stage_name}")

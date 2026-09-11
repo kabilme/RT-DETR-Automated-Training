@@ -214,6 +214,12 @@ class AnnotationManager:
         self.state_mgr.start_stage(Stage.ANNOTATE)
         src_dir = manual_dir or self.annot_cfg.get("annotation_dir", "data/annotations")
 
+        frame_files = sorted(list(self.frames_dir.glob("*.jpg")) + list(self.frames_dir.glob("*.png")))
+        if not frame_files:
+            err = f"No extracted frames found in {self.frames_dir}. Run Stage 1 (Extract) first."
+            self.state_mgr.fail_stage(Stage.ANNOTATE, err)
+            raise FileNotFoundError(err)
+
         stats = self.ingest_manual_annotations(src_dir)
 
         # If no manual annotations found, run auto-labeling
@@ -223,11 +229,18 @@ class AnnotationManager:
             classes_filt = self.auto_cfg.get("classes", None)
             stats = self.auto_annotate_with_model(model_name=m_name, conf_threshold=conf, classes_filter=classes_filt)
 
+        # Ensure we have non-empty label files with bounding boxes
+        non_empty_labels = [f for f in self.labels_dir.glob("*.txt") if f.stat().st_size > 0]
+        if not non_empty_labels:
+            err = f"No valid annotations generated in {self.labels_dir}. Auto-labeling model did not detect objects above conf threshold."
+            self.state_mgr.fail_stage(Stage.ANNOTATE, err)
+            raise RuntimeError(err)
+
         # Render inspection samples
         inspected = self.render_visual_inspection(max_samples=15)
 
         metrics = {
-            "total_labels": len(list(self.labels_dir.glob("*.txt"))),
+            "total_labels": len(non_empty_labels),
             "classes": self.classes,
             "inspected_samples": len(inspected),
         }

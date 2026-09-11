@@ -123,7 +123,38 @@ class StateManager:
         return StageStatus(st_data.get("status", StageStatus.PENDING.value))
 
     def is_completed(self, stage: Stage) -> bool:
-        return self.get_stage_status(stage) == StageStatus.COMPLETED
+        if self.get_stage_status(stage) != StageStatus.COMPLETED:
+            return False
+        # Physically verify essential stage artifacts exist on disk
+        try:
+            if stage == Stage.EXTRACT:
+                f_dir = Path(self.data["stages"][stage.value].get("artifacts", {}).get("frames_dir", "workspace/frames"))
+                if not f_dir.exists() or len(list(f_dir.glob("*.jpg")) + list(f_dir.glob("*.png"))) == 0:
+                    return False
+            elif stage == Stage.ANNOTATE:
+                l_dir = Path(self.data["stages"][stage.value].get("artifacts", {}).get("labels_dir", "workspace/labels"))
+                if not l_dir.exists() or len(list(l_dir.glob("*.txt"))) == 0:
+                    return False
+            elif stage == Stage.PREPARE:
+                yaml_p = Path("workspace/dataset/dataset.yaml")
+                if not yaml_p.exists():
+                    return False
+            elif stage == Stage.TRAIN:
+                ckpt = self.data["stages"][stage.value].get("artifacts", {}).get("best_checkpoint")
+                if not ckpt or not Path(ckpt).exists():
+                    if not list(Path("workspace/runs").rglob("best.pt")):
+                        return False
+            elif stage == Stage.EVALUATE:
+                rep = Path("workspace/evaluation/calibration_report.json")
+                if not rep.exists():
+                    return False
+            elif stage == Stage.EXPORT:
+                exp_dir = Path("workspace/exported_models")
+                if not exp_dir.exists() or len(list(exp_dir.glob("*.*"))) == 0:
+                    return False
+        except Exception:
+            pass
+        return True
 
     def start_stage(self, stage: Stage) -> None:
         self.data["stages"][stage.value]["status"] = StageStatus.RUNNING.value

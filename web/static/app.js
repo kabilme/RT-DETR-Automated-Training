@@ -64,20 +64,52 @@ async function pollStateAndLogs() {
   }
 }
 
+let previousRunningState = false;
+
 function updateHeaderStatus(state) {
   const pill = document.getElementById("systemStatusPill");
   const text = document.getElementById("systemStatusText");
+  const btnFull = document.getElementById("btnRunFullPipeline");
+  const btnStop = document.getElementById("btnStopPipeline");
 
   if (state.is_running) {
     pill.style.background = "rgba(59, 130, 246, 0.15)";
     pill.style.borderColor = "rgba(59, 130, 246, 0.4)";
     pill.style.color = "#3B82F6";
     text.textContent = `PROCESSING: ${state.running_stage ? state.running_stage.toUpperCase() : 'STAGE'}`;
+
+    if (btnFull) {
+      btnFull.disabled = true;
+      btnFull.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; border-width: 2px; margin-right: 0.5rem; vertical-align: middle;"></span> Running: ${state.running_stage ? state.running_stage.toUpperCase() : 'STAGE'}...`;
+    }
+    if (btnStop) {
+      btnStop.style.display = "inline-flex";
+    }
+    previousRunningState = true;
   } else {
     pill.style.background = "rgba(16, 185, 129, 0.1)";
     pill.style.borderColor = "rgba(16, 185, 129, 0.25)";
     pill.style.color = "#10B981";
     text.textContent = "ENGINE READY";
+
+    if (btnFull) {
+      btnFull.disabled = false;
+      btnFull.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Full Pipeline (Auto-Resume)`;
+    }
+    if (btnStop) {
+      btnStop.style.display = "none";
+      btnStop.textContent = "Stop Pipeline";
+      btnStop.disabled = false;
+    }
+
+    // Auto-refresh galleries & artifacts when pipeline transitions from running to finished
+    if (previousRunningState) {
+      previousRunningState = false;
+      if (typeof initGallery === "function") initGallery();
+      if (typeof initCalibration === "function") initCalibration();
+      if (typeof initArtifacts === "function") initArtifacts();
+      if (typeof loadExistingVideosForInference === "function") loadExistingVideosForInference();
+    }
   }
 }
 
@@ -200,19 +232,63 @@ async function refreshAllViewsAfterReset() {
   if (typeof resetInferPreview === "function") resetInferPreview();
 }
 
-document.getElementById("btnRunFullPipeline")?.addEventListener("click", async () => {
-  // Trigger from the first pending stage
+async function startFullPipeline() {
+  const btn = document.getElementById("btnRunFullPipeline");
   try {
     const stateRes = await fetch("/api/state");
     const state = await stateRes.json();
     const stageKeys = ["extract", "annotate", "prepare", "train", "evaluate", "export"];
     let nextStage = stageKeys.find((k) => state.stages[k]?.status !== "completed");
-    if (!nextStage) nextStage = "extract";
-    triggerStage(nextStage);
+    let force = false;
+
+    if (!nextStage) {
+      if (confirm("All 6 stages are already completed. Do you want to re-run the entire pipeline from Stage 1 (Extract)?")) {
+        nextStage = "extract";
+        force = true;
+      } else {
+        return;
+      }
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; border-width: 2px; margin-right: 0.5rem; vertical-align: middle;"></span> Starting Automated Pipeline...`;
+    }
+
+    const res = await fetch("/api/pipeline/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from_stage: nextStage, force: force }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Could not start full pipeline: ${err.detail || "Server error"}`);
+    }
   } catch (e) {
-    triggerStage("extract");
+    alert("Network error starting full pipeline: " + e.message);
   }
-});
+}
+
+async function stopPipeline() {
+  const btnStop = document.getElementById("btnStopPipeline");
+  if (btnStop) {
+    btnStop.textContent = "Stopping...";
+    btnStop.disabled = true;
+  }
+  try {
+    const res = await fetch("/api/pipeline/stop", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Could not stop pipeline: ${err.detail || "Server error"}`);
+    }
+  } catch (e) {
+    alert("Network error requesting pipeline stop: " + e.message);
+  }
+}
+
+document.getElementById("btnRunFullPipeline")?.addEventListener("click", startFullPipeline);
+document.getElementById("btnStopPipeline")?.addEventListener("click", stopPipeline);
 
 /* ================= CONFIGURATION ================= */
 async function initConfig() {
