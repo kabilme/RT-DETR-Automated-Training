@@ -145,15 +145,38 @@ def get_video_metadata(vpath: Path) -> Dict[str, Any]:
 
 @app.get("/api/videos")
 def list_uploaded_videos():
-    """Lists all uploaded training and negative background videos."""
+    """Lists all uploaded training and negative background videos with target class metadata."""
     supported = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv"}
     
+    # Load class mapping
+    class_map = {}
+    meta_path = VIDEOS_POS_DIR / "video_classes.json"
+    if meta_path.exists():
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                class_map = json.load(f)
+        except Exception:
+            pass
+
+    # Default class from config
+    default_cls = "helmet"
+    if Path("config.yaml").exists():
+        try:
+            with open("config.yaml", "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+                c_names = cfg.get("annotation", {}).get("class_names", [])
+                if c_names:
+                    default_cls = c_names[0]
+        except Exception:
+            pass
+
     pos_videos = []
     if VIDEOS_POS_DIR.exists():
         for p in sorted(VIDEOS_POS_DIR.iterdir()):
             if p.suffix.lower() in supported and p.is_file():
                 info = get_video_metadata(p)
                 info["type"] = "positive"
+                info["target_class"] = class_map.get(p.name, default_cls)
                 pos_videos.append(info)
 
     neg_videos = []
@@ -175,8 +198,9 @@ def list_uploaded_videos():
 async def upload_video_file(
     file: UploadFile = File(...),
     video_type: str = Form("positive"),
+    target_class: Optional[str] = Form(None),
 ):
-    """Uploads a video file into data/videos (positive) or data/negative_videos (negative background)."""
+    """Uploads a video file and binds it to the specified target object class."""
     supported = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
     suffix = Path(file.filename).suffix.lower()
     if suffix not in supported:
@@ -195,14 +219,92 @@ async def upload_video_file(
 
     meta = get_video_metadata(dest_path)
     meta["type"] = video_type
-    tag = "Background / Negative" if video_type == "negative" else "Training"
-    append_log(f"Uploaded {tag} video: '{file.filename}' ({meta['size_mb']} MB, {meta['duration_sec']}s, {meta['resolution']})")
+
+    if video_type == "positive" and target_class and target_class.strip():
+        clean_cls = target_class.strip().lower()
+        meta["target_class"] = clean_cls
+        
+        # Persist video class mapping
+        meta_path = VIDEOS_POS_DIR / "video_classes.json"
+        v_meta = {}
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    v_meta = json.load(f)
+            except Exception:
+                pass
+        v_meta[file.filename] = clean_cls
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(v_meta, f, indent=2)
+
+        # Update config.yaml with specified class
+        if Path("config.yaml").exists():
+            try:
+                with open("config.yaml", "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                cfg.setdefault("annotation", {})["class_names"] = [clean_cls]
+                from pipeline.stage_2_annotator import COCO_NAME_TO_ID
+                cid = COCO_NAME_TO_ID.get(clean_cls)
+                if cid is not None:
+                    cfg.setdefault("annotation", {}).setdefault("auto_label", {})["classes"] = [cid]
+                else:
+                    cfg.setdefault("annotation", {}).setdefault("auto_label", {})["classes"] = None
+                with open("config.yaml", "w", encoding="utf-8") as f:
+                    yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+            except Exception as e:
+                append_log(f"Warning: could not update config.yaml: {e}")
+
+        append_log(f"Uploaded Training video: '{file.filename}' (Target Class: '{clean_cls}')")
+    else:
+        tag = "Background / Negative" if video_type == "negative" else "Training"
+        append_log(f"Uploaded {tag} video: '{file.filename}' ({meta['size_mb']} MB, {meta['duration_sec']}s)")
 
     return {
         "status": "success",
-        "message": f"Successfully uploaded {tag} video",
+        "message": f"Successfully uploaded video",
         "video": meta,
     }
+
+
+class SetVideoClassRequest(BaseModel):
+    filename: str
+    target_class: str
+
+
+@app.post("/api/video/class")
+def set_video_class(req: SetVideoClassRequest):
+    """Updates target class for an existing video and updates config.yaml."""
+    clean_cls = req.target_class.strip().lower()
+    meta_path = VIDEOS_POS_DIR / "video_classes.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception:
+            pass
+    meta[req.filename] = clean_cls
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    if Path("config.yaml").exists():
+        try:
+            with open("config.yaml", "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            cfg.setdefault("annotation", {})["class_names"] = [clean_cls]
+            from pipeline.stage_2_annotator import COCO_NAME_TO_ID
+            cid = COCO_NAME_TO_ID.get(clean_cls)
+            if cid is not None:
+                cfg.setdefault("annotation", {}).setdefault("auto_label", {})["classes"] = [cid]
+            else:
+                cfg.setdefault("annotation", {}).setdefault("auto_label", {})["classes"] = None
+            with open("config.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            append_log(f"Warning: could not update config.yaml: {e}")
+
+    append_log(f"Target class for '{req.filename}' updated to '{clean_cls}' in config.yaml.")
+    return {"status": "success", "target_class": clean_cls}
 
 
 class ConfigUpdateRequest(BaseModel):

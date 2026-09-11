@@ -23,13 +23,12 @@ extraction:
 annotation:
   annotation_dir: data/annotations
   class_names:
-  - scooter
+  - helmet
   auto_label:
     enabled: true
     model: rtdetr-l.pt
     conf_threshold: 0.5
-    classes:
-    - 3
+    classes: []
 dataset:
   output_dir: workspace/dataset
   train_ratio: 0.7

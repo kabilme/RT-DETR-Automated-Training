@@ -307,8 +307,9 @@ async function initConfig() {
     const ev = currentConfig.evaluation || {};
     const ann = currentConfig.annotation || {};
 
-    const primaryClass = (ann.class_names && ann.class_names.length) ? ann.class_names[0] : "scooter";
+    const primaryClass = (ann.class_names && ann.class_names.length) ? ann.class_names[0] : "helmet";
     setValue("cfg_class_name", primaryClass);
+    setValue("uploadTargetClass", primaryClass);
 
     setValue("cfg_sample_fps", ext.sample_fps || 2.0);
     setValue("cfg_blur_var", blur.min_laplacian_variance || 80.0);
@@ -933,13 +934,16 @@ function setVideoUploadType(type) {
   currentVideoUploadType = type;
   const togglePos = document.getElementById("toggleTypePos");
   const toggleNeg = document.getElementById("toggleTypeNeg");
+  const classWrap = document.getElementById("uploadClassWrap");
 
   if (type === "positive") {
     togglePos.classList.add("active");
     toggleNeg.classList.remove("active");
+    if (classWrap) classWrap.style.display = "block";
   } else {
     toggleNeg.classList.add("active");
     togglePos.classList.remove("active");
+    if (classWrap) classWrap.style.display = "none";
   }
 }
 
@@ -980,15 +984,24 @@ function handleVideoUpload(file) {
   const nameEl = document.getElementById("videoUploadFileName");
   const percentEl = document.getElementById("videoUploadPercent");
   const barEl = document.getElementById("videoUploadProgressBar");
+  const targetClassInput = document.getElementById("uploadTargetClass");
+
+  let targetClass = "";
+  if (currentVideoUploadType === "positive" && targetClassInput) {
+    targetClass = targetClassInput.value.trim().toLowerCase();
+  }
 
   wrap.style.display = "block";
-  nameEl.textContent = `Uploading: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+  nameEl.textContent = `Uploading: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)${targetClass ? ` • Class: ${targetClass}` : ''}`;
   percentEl.textContent = "0%";
   barEl.style.width = "0%";
 
   const formData = new FormData();
   formData.append("file", file);
   formData.append("video_type", currentVideoUploadType);
+  if (targetClass) {
+    formData.append("target_class", targetClass);
+  }
 
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "/api/upload/video", true);
@@ -1007,6 +1020,7 @@ function handleVideoUpload(file) {
       setTimeout(() => {
         wrap.style.display = "none";
         loadVideoInventory();
+        loadConfig();
       }, 1200);
     } else {
       let errMsg = "Upload failed";
@@ -1025,6 +1039,24 @@ function handleVideoUpload(file) {
   };
 
   xhr.send(formData);
+}
+
+async function promptEditVideoClass(filename, currentClass) {
+  const newClass = prompt(`Enter target object class name for '${filename}':`, currentClass || "helmet");
+  if (!newClass || !newClass.trim()) return;
+  try {
+    const res = await fetch("/api/video/class", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, target_class: newClass.trim().toLowerCase() }),
+    });
+    if (res.ok) {
+      loadVideoInventory();
+      loadConfig();
+    }
+  } catch (e) {
+    console.error("Failed to update video class:", e);
+  }
 }
 
 async function loadVideoInventory() {
@@ -1059,6 +1091,9 @@ async function loadVideoInventory() {
       const isNeg = v.type === "negative";
       const badgeClass = isNeg ? "negative" : "positive";
       const badgeText = isNeg ? "Background (0-FP)" : "Target Training";
+      const targetClassTag = (!isNeg && v.target_class) 
+        ? `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; margin-left: 0.5rem; cursor: pointer;" onclick="promptEditVideoClass('${v.filename}', '${v.target_class}')" title="Click to edit class name">🏷️ ${v.target_class} ✏️</span>`
+        : "";
 
       const div = document.createElement("div");
       div.className = "video-item-row";
@@ -1066,7 +1101,7 @@ async function loadVideoInventory() {
         <div class="video-meta-left">
           <span class="video-type-badge ${badgeClass}">${badgeText}</span>
           <div>
-            <div class="video-name" title="${v.filename}">${v.filename}</div>
+            <div class="video-name" title="${v.filename}">${v.filename} ${targetClassTag}</div>
             <div class="video-sub-meta">${v.size_mb} MB • ${v.resolution} • ${v.fps} FPS • ${v.duration_sec}s</div>
           </div>
         </div>

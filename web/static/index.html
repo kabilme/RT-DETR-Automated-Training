@@ -158,6 +158,24 @@
               </label>
             </div>
 
+            <!-- Target Class Input for Training Videos -->
+            <div id="uploadClassWrap" style="margin-bottom: 0.85rem;">
+              <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.35rem;">
+                <span style="display: flex; align-items: center; gap: 0.35rem;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                  Target Object Class Name
+                </span>
+                <span style="font-size: 0.72rem; color: var(--accent-cyan); font-weight: 600;">Specify Class for Training</span>
+              </label>
+              <div style="position: relative;">
+                <input type="text" id="uploadTargetClass" class="form-input" placeholder="Enter class name (e.g. helmet, scooter, chair, car)" value="helmet" style="padding-left: 2.2rem; font-weight: 600; border-color: rgba(59, 130, 246, 0.4);" />
+                <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; opacity: 0.8;">🎯</span>
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.3rem;">
+                Specifies the target object class to annotate. The system will isolate and label the most prominent object in the frames with very high confidence.
+              </div>
+            </div>
+
             <div id="videoDropZone" class="video-drop-zone">
               <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem;">Select or Drag & Drop Video File</div>
