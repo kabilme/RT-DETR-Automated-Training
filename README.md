@@ -1,217 +1,260 @@
 # RT-DETR Automated Training & Deployment Pipeline
 
-A production-ready, modular Python application for automating the entire lifecycle of training and deploying **RT-DETR (Real-Time DEtection TRansformer)** models. The pipeline automates every step from raw video frame ingestion to generating deployment-optimized artifacts (**ONNX**, **OpenVINO**, **TorchScript**) with **mathematically verified zero/low false-positive operating profiles**.
+A production-grade, modular framework for automating the entire lifecycle of training, fine-tuning, and deploying **RT-DETR (Real-Time DEtection TRansformer)** models. The pipeline automates every step from raw video ingestion to exporting deployment-ready artifacts (**ONNX**, **OpenVINO**, **TorchScript**) with **mathematically verified zero/low false-positive operating profiles**.
 
 ---
 
-## Key Features
+## 🌟 Key Highlights & Architecture
 
-1. **Modular & Resumable Architecture**:
-   - Every stage (`extract` → `annotate` → `prepare` → `train` → `evaluate` → `export`) is decoupled.
-   - Built-in persistent state manager (`workspace/pipeline_state.json`) lets you pause, stop, and continue at any stage without losing progress.
-   - Stage reset support (`python main.py reset --stage train`) allows re-running specific stages without re-extracting frames.
+### 1. User-Specified Target Class & Ingestion Center
+- **Custom Class Support on Upload**: Directly input any custom class name (e.g., `helmet`, `scooter`, `drone`, `industrial_part`) when uploading training videos through the interactive Web Studio or CLI.
+- **Negative / Background Video Harvesting**: Upload pure background scenes (empty rooms, roads, natural clutter) to harvest hard negative frames that teach the Hungarian matcher what is *not* an object.
+- **Metadata Persistence**: Video-to-class mappings are automatically saved to `data/videos/video_classes.json` and synchronized with `config.yaml`.
 
-2. **Guaranteed False-Positive Mitigation**:
-   - **Background / Negative Frame Harvesting**: Extracts empty frames (scenery, clutter, shadows) and pairs them with 0-byte label files. This teaches the RT-DETR Hungarian matcher what is *not* an object.
-   - **Hard Negative Mining**: Easily ingest challenging false-alarm scenes from `data/hard_negatives/`.
-   - **Precision Calibration Engine**: Evaluates Precision-Recall and False-Positive curves on validation and background scenes, deriving optimal per-class confidence thresholds ($\tau^*$) that meet your target precision (e.g. 99–100%).
-   - **Geometric Outlier Filtering**: Automatically suppresses micro-noise boxes and impossible aspect ratio detections.
+### 2. High-Confidence Prominent Foreground Object Annotation
+- **No Reliance on Fixed COCO Classes**: Standard COCO models frequently fail on custom objects or assign erroneous labels (e.g., tagging a motorcycle helmet as a `vase` or `oven`).
+- **No External Zero-Shot Dependencies**: Operates completely offline without requiring YOLO-World or heavy external downloads.
+- **Foreground Prominence Localization**: Stage 2 isolates the primary object of interest in every extracted frame using:
+  - **Geometric Saliency**: Rejects flat horizontal surfaces (tables, shelves with aspect ratio $> 2.8$) and vertical slivers ($< 0.25$).
+  - **Boundary & Noise Filtering**: Excludes full-frame borders ($> 88\%$) and micro-noise ($< 6\%$).
+  - **Center-Prior Proximity**: Focuses attention on foreground subjects located near the image optical center:
+    $$\text{score} = \text{area} \times \text{conf} \times \text{center\_factor}$$
+- **High-Confidence Badging**: Bounding boxes are tagged with the user's custom class name at very high confidence ($\ge 0.95$), saving visual inspection previews to `workspace/inspection/` (e.g. `helmet 0.95`).
 
-3. **Multi-Format Export & Verification**:
-   - Exports directly to **ONNX** (with Opset 17), **OpenVINO** (optimized for Intel CPUs/iGPUs), and **TorchScript**.
-   - Automatic post-export verification with `onnxruntime` to ensure numerical and shape integrity.
+### 3. Guaranteed False-Positive Defense
+- **Background Frame Injection**: Dedicated negative frames are paired with 0-byte label files in Stage 3, enforcing zero-object supervision.
+- **Precision Calibration Engine**: Stage 5 evaluates precision and false-positive curves across confidence thresholds on validation and background scenes, deriving optimal per-class operating thresholds ($\tau^*$) that achieve $100\%$ precision with zero false alarms.
 
-4. **Hardware Optimized**:
-   - Auto-detects CUDA / CPU.
-   - Supports OpenVINO acceleration on Intel UHD / Iris graphics.
+### 4. Multi-Format Export & Verification
+- Exports to **ONNX** (Opset 17, simplified with `onnxslim`), **OpenVINO** (optimized for Intel CPUs/iGPUs), and **TorchScript**.
+- Automatic numerical and tensor shape verification with `onnxruntime` (`[1, 300, 6]`).
 
 ---
 
-## Quickstart
+## 🚀 Quickstart
 
 ### 1. Environment Setup
 
-The application is configured to run in `.venv` (Python 3.10):
+The application is configured to run in `.venv` with Python 3.10:
 
 ```powershell
-# Activate the virtual environment
+# Activate virtual environment
 .\.venv\Scripts\Activate.ps1
 
-# Verify packages
+# Verify installation
 python -m pip list
 ```
 
-### 2. Prepare Your Data
+### 2. Launch the Interactive Web Studio Dashboard
 
-Place your raw input videos into `data/videos/`:
-```
-d:\RT_DETR\
-  ├── data/
-  │   ├── videos/              # Put your positive training videos here (.mp4, .avi, etc.)
-  │   ├── negative_videos/     # Optional: videos containing only background/no objects
-  │   └── annotations/         # Optional: manual labels (.txt or Pascal VOC .xml)
-```
-
----
-
-## Pipeline Execution
-
-### Option A: Run Full Pipeline (End-to-End)
-
-Executes all stages sequentially. If a stage is already completed, it will automatically resume from the next pending stage:
-
-```powershell
-python main.py run
-```
-
-To force re-running all stages from scratch:
-```powershell
-python main.py run --force
-```
-
-To start from a specific stage (e.g. from training onward):
-```powershell
-python main.py run --from-stage train
-```
-
----
-
-### Option B: Interactive Web Studio Dashboard
-
-You can launch and operate the entire pipeline through the browser dashboard:
+Launch the web studio to manage videos, configure parameters, run the pipeline, and run live inference:
 
 ```powershell
 python main.py web --port 8000
 ```
-Open your browser at: **`http://localhost:8000`**
 
-The Web Studio provides:
-- **Modular Pipeline Stepper**: Live glowing step indicators, execution times, and stage trigger/reset buttons.
-- **Execution Console**: Live streaming logs with autoscroll.
-- **Configuration Tuner**: Adjust blur thresholds, negative ratios, epochs, and precision targets interactively.
-- **Visual Inspection Gallery**: Preview extracted frames and ground truth bounding boxes before training.
-- **Precision & False-Positive Curves**: Review calibration curves and optimal per-class thresholds ($\tau^*$).
-- **Live Inference Lab**: Drag & drop test images to test false-positive rejection with ONNX Runtime.
-- **Artifact Downloads**: One-click download for `rtdetr-l.onnx`, `rtdetr-l.torchscript`, OpenVINO, and `calibrated_thresholds.json`.
+Open your browser at: **`http://localhost:8000`**
 
 ---
 
-### Option C: Modular Stage-by-Stage CLI Control
+## 🖥️ Web Studio Dashboard Capabilities
 
-You can execute each stage independently, inspect intermediate artifacts, and continue when ready:
+The interactive web studio provides a comprehensive interface:
 
-#### Stage 1: Video Ingestion & Frame Extraction
-Extracts frames from video files with Laplacian blur filtering, perceptual deduplication, and negative frame extraction:
+1. **Video Ingestion & Upload Center**:
+   - Drag & drop or browse video files (`.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`).
+   - Toggle between **🎯 Training Video (Target Objects)** and **🛡️ Background Video (0-FP Defense)**.
+   - For training videos, enter the **Target Object Class Name** (e.g. `helmet`).
+   - Video inventory list displaying video resolution, duration, FPS, file size, and interactive class badges (`🏷️ <class_name> ✏️`) for inline editing.
+   - One-click deletion with confirmation dialogs.
+
+2. **Modular Stage Progression Stepper**:
+   - Visual execution cards for all 6 pipeline stages (**Extract**, **Annotate**, **Prepare**, **Train**, **Calibrate**, **Export**).
+   - Real-time stage statuses (`COMPLETED`, `RUNNING`, `FAILED`, `PENDING`) and execution durations.
+   - **Run Full Pipeline (Auto-Resume)**: Automatically resumes from the earliest uncompleted stage.
+   - **Reset Entire Pipeline**: Flushes workspace artifacts and resets pipeline state back to stage 1.
+
+3. **Live Execution Console**:
+   - Real-time streaming log feed with auto-scroll and status indicators.
+
+4. **Visual Inspection Gallery (`Dataset & Inspect`)**:
+   - Renders visual overlays directly from `workspace/inspection/`.
+   - Displays bounding boxes with bright green contours and exact `<class_name> <confidence>` badges.
+
+5. **False-Positive Defense Curve (`FP Defense & Curve`)**:
+   - Plots precision vs. confidence curves and per-class zero-FP operating thresholds.
+
+6. **Live Inference Lab**:
+   - Test trained models (`best.onnx` or `best.pt`) on single images or full video clips.
+   - Displays real-time bounding boxes, confidence badges, latency metrics, and side-by-side detection cards.
+   - Download processed inference videos with overlays.
+
+7. **Models & Export**:
+   - Download `best.onnx`, `best.torchscript`, `best_openvino_model`, and `calibrated_thresholds.json`.
+
+---
+
+## ⚙️ CLI Operations & Modular Stages
+
+You can execute each stage independently via the command line:
+
+### Stage 1: Frame Extraction & Pre-Filtering
+Extracts video frames, rejects blurry frames via Laplacian variance, eliminates perceptual duplicates, and harvests background scenes:
 ```powershell
-# Extract frames from default video folder:
 python main.py extract
-
-# Or extract from a specific video file:
-python main.py extract --video path/to/video.mp4
 ```
-*Output: Extracted frames in `workspace/frames/` and background scenes in `workspace/negatives/`.*
+*Output: Extracted frames in `workspace/frames/` and negative frames in `workspace/negatives/`.*
 
-#### Stage 2: Annotation Ingestion / Auto-Labeling
-Ingests manual YOLO or Pascal VOC annotations, or bootstraps labels using a pretrained model:
+### Stage 2: Prominent Object Annotation
+Localizes and annotates the most prominent foreground object with high confidence ($\ge 0.95$) using the specified class:
 ```powershell
-# Ingest manual annotations:
 python main.py annotate
-
-# Or enable bootstrap auto-labeling:
-python main.py annotate --auto
 ```
-*Visual inspection overlays are saved to `workspace/inspection/` for quality review.*
+*Output: YOLO labels in `workspace/labels/` and visual inspection frames in `workspace/inspection/`.*
 
-#### Stage 3: Dataset Preparation & Negative Sample Injection
-Splits data into `train`, `val`, and `test` splits, enforces negative/background image ratios, and generates 0-byte negative label files:
+### Stage 3: Dataset Preparation & Negative Injection
+Partitions dataset into train/val/test splits and injects empty background images with 0-byte labels:
 ```powershell
 python main.py prepare
 ```
-*Output: RT-DETR compatible dataset in `workspace/dataset/` with `dataset.yaml`.*
+*Output: Structured dataset in `workspace/dataset/` with `dataset.yaml`.*
 
-#### Stage 4: RT-DETR Model Training
-Trains the RT-DETR model with auto-detected hardware, early stopping, and checkpoint recovery:
+### Stage 4: RT-DETR Training
+Fine-tunes the RT-DETR model with auto-detected hardware, early stopping, and checkpoint recovery:
 ```powershell
 # Train with default epochs from config.yaml:
 python main.py train
 
-# Or override epoch count:
-python main.py train --epochs 30
+# Or override epochs:
+python main.py train --epochs 10
 ```
-*If interrupted, re-running `python main.py train` automatically resumes from `last.pt`.*
+*Output: Checkpoints saved in `workspace/runs/train/rtdetr_run/weights/` (`best.pt`, `last.pt`).*
 
-#### Stage 5: False-Positive Calibration
-Evaluates validation metrics across confidence thresholds to determine the exact threshold $\tau^*$ per class required to attain $\ge 99\%$ precision with zero false positives:
+### Stage 5: False-Positive Calibration
+Evaluates validation metrics to determine the exact threshold $\tau^*$ per class required to attain $\ge 99\%$ precision with zero false alarms on negative backgrounds:
 ```powershell
 python main.py evaluate
 ```
-*Outputs `workspace/evaluation/calibrated_thresholds.json` and visual curve `precision_calibration_curve.png`.*
+*Output: `workspace/evaluation/calibrated_thresholds.json` and `precision_calibration_curve.png`.*
 
-#### Stage 6: Model Export & Verification
-Exports the best checkpoint to deployment-ready formats and verifies them with ONNX Runtime:
+### Stage 6: Model Export & Verification
+Exports `best.pt` to ONNX, OpenVINO, and TorchScript, verifying tensor shapes with `onnxruntime`:
 ```powershell
 python main.py export
 ```
-*Output: Ready-to-deploy bundle in `workspace/exported_models/` (`model.onnx`, `calibrated_thresholds.json`).*
+*Output: Exported bundle in `workspace/exported_models/` (`best.onnx`, `best.torchscript`, OpenVINO).*
 
 ---
 
-## Status & State Management
+## 🔄 Pipeline State Management & Status
 
-Inspect the current execution state of all pipeline stages at any time:
+Check the status of all pipeline stages at any time:
 ```powershell
 python main.py status
 ```
-Example output:
+
+Example status table:
 ```
                        RT-DETR Pipeline Execution State                        
 +-----------------------------------------------------------------------------+
 | Stage    | Status    | Duration (s) | Details / Artifacts                   |
 |----------+-----------+--------------+---------------------------------------|
-| EXTRACT  | COMPLETED |         14.2 | total_positive_frames=120, neg=25     |
-| ANNOTATE | COMPLETED |          3.1 | total_labels=120, inspected_samples=10|
-| PREPARE  | COMPLETED |          1.4 | train_pos=84, train_neg=17, val_pos=24|
-| TRAIN    | COMPLETED |        420.5 | best_checkpoint=runs/train/best.pt    |
-| EVALUATE | COMPLETED |         12.8 | global_threshold=0.74, precision=1.0  |
-| EXPORT   | COMPLETED |          8.2 | formats=['onnx', 'openvino']          |
+| EXTRACT  | COMPLETED |          3.0 | total_positive_frames=132, neg=8      |
+| ANNOTATE | COMPLETED |         47.3 | total_labels=132, classes=['helmet']  |
+| PREPARE  | COMPLETED |          0.6 | train_pos=92, train_neg=6, val_pos=26 |
+| TRAIN    | COMPLETED |        341.0 | best_checkpoint=best.pt               |
+| EVALUATE | COMPLETED |         11.3 | global_threshold=0.09, precision=1.0  |
+| EXPORT   | COMPLETED |         18.9 | formats=['onnx', 'torchscript', ...]  |
 +-----------------------------------------------------------------------------+
 ```
 
-To reset a stage (and any downstream stages dependent on it):
+To reset a specific stage and all downstream stages:
 ```powershell
 python main.py reset --stage train
 ```
 
----
-
-## Running Inference (Zero False Positives)
-
-Deploy the trained model with precision calibration on any new image, video, or folder:
-
+To reset the entire pipeline back to stage 1:
 ```powershell
-# Inference on an image:
-python main.py infer --model workspace/exported_models/best.onnx --input path/to/image.jpg
-
-# Inference on a video:
-python main.py infer --model workspace/exported_models/best.pt --input path/to/video.mp4
-
-# Inference on an entire folder:
-python main.py infer --model workspace/exported_models/best.onnx --input path/to/test_folder/
+python main.py reset --all
 ```
 
-Detections will automatically apply the calibrated per-class threshold $\tau^*$ and geometric noise filters, discarding low-confidence spurious background hallucinations.
+---
+
+## 🎯 Running Inference (Zero False Positives)
+
+Deploy the trained model with calibrated thresholds on any test image, video, or folder:
+
+```powershell
+# Run inference on an image using ONNX:
+python main.py infer --model workspace/exported_models/best.onnx --input path/to/image.jpg
+
+# Run inference on a video using PyTorch checkpoint:
+python main.py infer --model workspace/runs/train/rtdetr_run/weights/best.pt --input path/to/video.mp4
+
+# Run inference on a directory of images:
+python main.py infer --model workspace/exported_models/best.onnx --input path/to/folder/
+```
+
+Detections automatically enforce the calibrated per-class threshold $\tau^*$ and geometric filters to eliminate spurious background hallucinations.
 
 ---
 
-## Configuration Reference (`config.yaml`)
+## 📝 Configuration Reference (`config.yaml`)
 
-Edit `config.yaml` to tune pipeline parameters:
+```yaml
+project:
+  name: RT_DETR_Project
+  work_dir: workspace
+  device: auto # auto, cpu, or cuda:0
 
-- `extraction.sample_fps`: Extraction rate (frames per second).
-- `extraction.blur_filter.min_laplacian_variance`: Minimum sharpness threshold (higher = stricter blur rejection).
-- `extraction.deduplication.similarity_threshold`: Consecutive frame similarity limit (default: 0.96).
-- `dataset.false_positive_mitigation.target_background_ratio`: Fraction of pure background images to include (default: 0.15 = 15%).
-- `training.model_architecture`: Backbone (`rtdetr-l.pt`, `rtdetr-x.pt`).
-- `training.imgsz`: Image resolution (e.g. 640 or 320 for faster CPU training).
-- `evaluation.target_precision`: Precision target for threshold calibration (default: 0.99 = 99%).
-- `export.formats`: List of export formats (`onnx`, `openvino`, `torchscript`).
+extraction:
+  video_path: data/videos
+  negative_video_path: data/negative_videos
+  sample_fps: 4.0
+  blur_filter:
+    enabled: true
+    min_laplacian_variance: 80.0
+  deduplication:
+    enabled: true
+    similarity_threshold: 0.96
+
+annotation:
+  annotation_dir: data/annotations
+  class_names:
+    - helmet # Target class name
+  auto_label:
+    enabled: true
+    model: rtdetr-l.pt
+    conf_threshold: 0.50
+
+dataset:
+  train_ratio: 0.70
+  val_ratio: 0.20
+  test_ratio: 0.10
+  false_positive_mitigation:
+    include_background_images: true
+    target_background_ratio: 0.15 # 15% pure background scenes
+
+training:
+  model_architecture: rtdetr-l.pt
+  imgsz: 640
+  epochs: 2
+  batch_size: 4
+  optimizer: AdamW
+  lr0: 0.0005
+
+evaluation:
+  target_precision: 0.99 # 99% precision requirement
+  max_acceptable_fp_count: 0
+  min_box_area: 100
+  aspect_ratio_range: [0.1, 10.0]
+
+export:
+  formats:
+    - onnx
+    - torchscript
+    - openvino
+  onnx:
+    opset: 17
+    simplify: true
+```
