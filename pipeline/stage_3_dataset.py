@@ -221,3 +221,6 @@ class DatasetBuilder:
             f" - Dataset config: {yaml_path}"
         )
         return counts
+
+    run = build
+

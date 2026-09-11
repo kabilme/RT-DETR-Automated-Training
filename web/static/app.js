@@ -306,7 +306,7 @@ async function initConfig() {
     const ev = currentConfig.evaluation || {};
     const ann = currentConfig.annotation || {};
 
-    const primaryClass = (ann.class_names && ann.class_names.length) ? ann.class_names[0] : "chair";
+    const primaryClass = (ann.class_names && ann.class_names.length) ? ann.class_names[0] : "scooter";
     setValue("cfg_class_name", primaryClass);
 
     setValue("cfg_sample_fps", ext.sample_fps || 2.0);
@@ -346,7 +346,7 @@ async function saveConfig() {
   if (!currentConfig.evaluation) currentConfig.evaluation = {};
   if (!currentConfig.annotation) currentConfig.annotation = {};
 
-  const cName = getValue("cfg_class_name", "chair").trim();
+  const cName = getValue("cfg_class_name", "scooter").trim();
   currentConfig.annotation.class_names = [cName];
 
   currentConfig.extraction.sample_fps = parseFloat(getValue("cfg_sample_fps", 2.0));
