@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RT-DETR Automated Pipeline Studio | Zero-False-Positive Object Detection</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="header">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3v18"></path>
+          <path d="M3 12h18"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">RT-DETR Studio</h1>
+        <div class="brand-subtitle">Automated Zero-False-Positive Pipeline</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="studio">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h18"/></svg>
+        Pipeline Studio
+      </button>
+      <button class="tab-btn" data-tab="config">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        Configuration
+      </button>
+      <button class="tab-btn" data-tab="gallery">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Dataset & Inspect
+      </button>
+      <button class="tab-btn" data-tab="defense">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        FP Defense & Curve
+      </button>
+      <button class="tab-btn" data-tab="infer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Live Inference Lab
+      </button>
+      <button class="tab-btn" data-tab="artifacts">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Models & Export
+      </button>
+    </nav>
+
+    <!-- Header Status Indicator -->
+    <div class="header-status">
+      <div id="systemStatusPill" class="status-pill">
+        <div class="status-dot"></div>
+        <span id="systemStatusText">ENGINE READY</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- ================= TAB 1: PIPELINE STUDIO ================= -->
+    <section id="tab-studio" class="tab-pane active">
+      
+      <!-- Stepper Component -->
+      <div class="stepper-card">
+        <div class="stepper-title-row">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Modular Stage Progression
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="btnRunFullPipeline" class="btn btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Run Full Pipeline (Auto-Resume)
+            </button>
+          </div>
+        </div>
+
+        <div class="pipeline-stepper">
+          <!-- Step 1: Extract -->
+          <div id="step-extract" class="step-node">
+            <div class="step-icon-wrap">1</div>
+            <div class="step-name">EXTRACT</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+          <!-- Step 2: Annotate -->
+          <div id="step-annotate" class="step-node">
+            <div class="step-icon-wrap">2</div>
+            <div class="step-name">ANNOTATE</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+          <!-- Step 3: Prepare -->
+          <div id="step-prepare" class="step-node">
+            <div class="step-icon-wrap">3</div>
+            <div class="step-name">PREPARE</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+          <!-- Step 4: Train -->
+          <div id="step-train" class="step-node">
+            <div class="step-icon-wrap">4</div>
+            <div class="step-name">TRAIN</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+          <!-- Step 5: Evaluate -->
+          <div id="step-evaluate" class="step-node">
+            <div class="step-icon-wrap">5</div>
+            <div class="step-name">CALIBRATE</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+          <!-- Step 6: Export -->
+          <div id="step-export" class="step-node">
+            <div class="step-icon-wrap">6</div>
+            <div class="step-name">EXPORT</div>
+            <div class="step-status-badge">PENDING</div>
+            <div class="step-time">0.0s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Ingestion & Upload Section -->
+      <div class="panel-card" style="margin-bottom: 2rem;">
+        <div class="panel-header">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            Video Ingestion & Upload Center
+          </div>
+          <span id="videoCountBadge" style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">0 video(s) ready</span>
+        </div>
+
+        <div class="video-upload-grid">
+          <!-- Drop Zone & Upload Controls -->
+          <div class="video-drop-card">
+            <div class="video-type-toggle">
+              <label class="toggle-option active" id="toggleTypePos" onclick="setVideoUploadType('positive')">
+                <span>🎯 Training Video (Target Objects)</span>
+              </label>
+              <label class="toggle-option" id="toggleTypeNeg" onclick="setVideoUploadType('negative')">
+                <span>🛡️ Background Video (0-FP Defense)</span>
+              </label>
+            </div>
+
+            <div id="videoDropZone" class="video-drop-zone">
+              <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem;">Select or Drag & Drop Video File</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.85rem;">Supports MP4, AVI, MOV, MKV, WEBM</div>
+              <input type="file" id="videoFileInput" accept="video/*" style="display: none;">
+              <button class="btn btn-primary" onclick="document.getElementById('videoFileInput').click()">Browse Video File</button>
+            </div>
+
+            <!-- Upload progress -->
+            <div id="videoUploadProgressWrap" style="display: none; margin-top: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.35rem;">
+                <span id="videoUploadFileName" style="font-weight: 600; color: #fff;">Uploading...</span>
+                <span id="videoUploadPercent" style="font-family: var(--font-mono); color: var(--accent-cyan);">0%</span>
+              </div>
+              <div class="progress-bar-track">
+                <div id="videoUploadProgressBar" class="progress-bar-fill"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Video Inventory List -->
+          <div class="video-inventory-card">
+            <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+              <span>Available Project Videos</span>
+              <button class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.72rem;" onclick="loadVideoInventory()">Refresh List</button>
+            </div>
+            <div id="videoInventoryList" class="video-list-scroll">
+              <div style="color: var(--text-muted); text-align: center; padding: 2rem;">Loading videos...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Studio Grid: Left Controls, Right Terminal -->
+      <div class="studio-grid">
+        
+        <!-- Stage Controllers -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              Stage Control Center
+            </div>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Decoupled Executions</span>
+          </div>
+
+          <div class="stage-action-grid">
+            
+            <!-- Stage 1 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">1. Video Frame Extractor</div>
+                <div class="stage-info-desc">Samples video, filters blur & duplicates, harvests background</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" onclick="triggerStage('extract')">Run</button>
+                <button class="btn btn-danger" onclick="resetStage('extract')">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stage 2 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">2. Annotation & AI Auto-Labeler</div>
+                <div class="stage-info-desc">Auto-labels frames using pretrained AI model, renders box overlays in inspection/</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-primary" onclick="triggerStage('annotate', { auto_label: true })">⚡ Auto-Label AI</button>
+                <button class="btn btn-secondary" onclick="triggerStage('annotate', { auto_label: false })">Ingest</button>
+                <button class="btn btn-danger" onclick="resetStage('annotate')">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stage 3 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">3. Dataset Builder & FP Defense</div>
+                <div class="stage-info-desc">Partitions train/val/test, generates 0-byte background labels</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" onclick="triggerStage('prepare')">Run</button>
+                <button class="btn btn-danger" onclick="resetStage('prepare')">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stage 4 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">4. RT-DETR Model Trainer</div>
+                <div class="stage-info-desc">Auto-detects CPU/CUDA, saves checkpoints, auto-resumes</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" onclick="triggerStage('train')">Run</button>
+                <button class="btn btn-danger" onclick="resetStage('train')">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stage 5 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">5. FP Calibrator & PR Solver</div>
+                <div class="stage-info-desc">Finds optimal threshold τ* guaranteeing 99–100% precision</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" onclick="triggerStage('evaluate')">Run</button>
+                <button class="btn btn-danger" onclick="resetStage('evaluate')">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stage 6 -->
+            <div class="stage-action-item">
+              <div class="stage-info">
+                <div class="stage-info-title">6. Multi-Format Exporter</div>
+                <div class="stage-info-desc">Exports to ONNX, OpenVINO, TorchScript with ONNX verification</div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" onclick="triggerStage('export')">Run</button>
+                <button class="btn btn-danger" onclick="resetStage('export')">Reset</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Terminal Box -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Live Execution Console
+            </div>
+            <button class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.72rem;" onclick="clearLogs()">Clear</button>
+          </div>
+          <div id="terminalOutput" class="terminal-box">
+            <div class="terminal-line info">[00:00:00] RT-DETR Interactive Pipeline Studio initialized.</div>
+            <div class="terminal-line">[00:00:00] Persistent State Manager linked to workspace/pipeline_state.json.</div>
+            <div class="terminal-line success">[00:00:00] Ready. Select a stage or click 'Run Full Pipeline' to proceed.</div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ================= TAB 2: CONFIGURATION ================= -->
+    <section id="tab-config" class="tab-pane">
+      <div class="panel-card" style="max-width: 900px; margin: 0 auto;">
+        <div class="panel-header">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Pipeline Parameter Tuning
+          </div>
+          <button id="btnSaveConfig" class="btn btn-primary" onclick="saveConfig()">Save Changes to config.yaml</button>
+        </div>
+
+        <div class="form-grid">
+          <!-- Extraction -->
+          <div class="form-group">
+            <label class="form-label">Extraction Sample FPS</label>
+            <input type="number" step="0.5" id="cfg_sample_fps" class="form-input">
+            <span class="form-hint">Number of frames to extract per second of video</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Min Laplacian Variance (Blur Threshold)</label>
+            <input type="number" step="5" id="cfg_blur_var" class="form-input">
+            <span class="form-hint">Frames below this variance are rejected as blurry</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Frame Deduplication Threshold</label>
+            <input type="number" step="0.01" max="1.0" id="cfg_dedup_thresh" class="form-input">
+            <span class="form-hint">Discards consecutive frames exceeding this similarity</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Target Background/Negative Ratio</label>
+            <input type="number" step="0.05" min="0" max="0.5" id="cfg_bg_ratio" class="form-input">
+            <span class="form-hint">Fraction of pure 0-byte background frames (e.g. 0.15 = 15%)</span>
+          </div>
+
+          <!-- Training -->
+          <div class="form-group">
+            <label class="form-label">Model Architecture</label>
+            <input type="text" id="cfg_arch" class="form-input">
+            <span class="form-hint">rtdetr-l.pt or rtdetr-x.pt</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Training Image Size (imgsz)</label>
+            <input type="number" step="32" id="cfg_imgsz" class="form-input">
+            <span class="form-hint">Square resolution (e.g. 640 or 320)</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Training Epochs</label>
+            <input type="number" id="cfg_epochs" class="form-input">
+            <span class="form-hint">Total epochs (early stopping will halt if converged)</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Batch Size</label>
+            <input type="number" id="cfg_batch_size" class="form-input">
+            <span class="form-hint">Batch size (set to 2 or 4 for CPU)</span>
+          </div>
+
+          <!-- False-Positive Defense -->
+          <div class="form-group">
+            <label class="form-label">Target Precision (False-Positive Defense)</label>
+            <input type="number" step="0.01" min="0.80" max="1.00" id="cfg_precision" class="form-input">
+            <span class="form-hint">Target validation precision for threshold calibration (0.99+)</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Min Bounding Box Area (Pixels)</label>
+            <input type="number" id="cfg_min_area" class="form-input">
+            <span class="form-hint">Rejects micro-pixel noise detections</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 3: DATASET & INSPECT ================= -->
+    <section id="tab-gallery" class="tab-pane">
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Annotation Visual Inspection Gallery
+          </div>
+          <span style="font-size: 0.8rem; color: var(--text-secondary);">Rendered directly from workspace/inspection</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+          These sample frames demonstrate bounding box alignment and class tags before model training commences.
+        </p>
+        <div id="inspectionGallery" class="gallery-grid">
+          <div style="color: var(--text-muted); grid-column: 1/-1; text-align: center; padding: 2rem;">Loading inspection samples...</div>
+        </div>
+      </div>
+
+      <div class="panel-card" style="margin-top: 2rem;">
+        <div class="panel-header">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            Harvested Background / Negative Frames
+          </div>
+          <span id="negativeCountBadge" style="font-size: 0.8rem; color: var(--accent-green);">0 background frames</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Background frames containing zero objects. Injected with 0-byte labels into training & validation splits to eliminate false positives.
+        </p>
+        <div id="negativesGallery" class="gallery-grid">
+          <div style="color: var(--text-muted); grid-column: 1/-1; text-align: center; padding: 2rem;">Loading background samples...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 4: FP DEFENSE & CURVE ================= -->
+    <section id="tab-defense" class="tab-pane">
+      <div class="studio-grid">
+        <!-- Curve Plot -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              Precision & False Positive Curves
+            </div>
+          </div>
+          <div style="display: flex; justify-content: center; align-items: center; min-height: 320px; background: rgba(0,0,0,0.3); border-radius: var(--radius-md); overflow: hidden;">
+            <img id="calibrationCurveImg" src="" alt="Precision Calibration Curve" style="max-width: 100%; height: auto; display: none;">
+            <div id="noCurveMessage" style="color: var(--text-muted); font-size: 0.85rem;">Run Stage 5 (Calibrate) to generate curve plots.</div>
+          </div>
+        </div>
+
+        <!-- Calibrated Thresholds Breakdown -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Optimal Operating Profiles
+            </div>
+            <span id="globalThresholdPill" class="status-pill" style="color: var(--accent-cyan); border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.1);">
+              Global τ* = --
+            </span>
+          </div>
+          
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Calibrated Conf (τ*)</th>
+                <th>Precision</th>
+                <th>FP Count</th>
+              </tr>
+            </thead>
+            <tbody id="calibrationTableBody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted);">No calibration profile loaded yet.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--accent-blue);">How it guarantees zero false positives:</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5;">
+              During calibration, predictions are evaluated across positive validation targets and pure background scenes. The calibrator identifies the exact confidence floor where background detections drop to <strong>0</strong> while maintaining maximum recall.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 5: LIVE INFERENCE LAB ================= -->
+    <section id="tab-infer" class="tab-pane">
+      <div class="inference-container">
+        
+        <!-- Controls & Upload -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+              Test Inference
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Select Deployment Engine</label>
+            <select id="inferModelSelect" class="form-input">
+              <option value="onnx">ONNX Runtime (Zero-FP: best.onnx)</option>
+              <option value="pt">PyTorch Model (best.pt)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Confidence Threshold (Override)</label>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <input type="number" id="inferConfOverride" class="form-input" min="0.01" max="1.0" step="0.01" placeholder="Auto (Use Calibrated τ*)">
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">Leave empty to enforce zero false positives via the calibrated operating floor.</div>
+          </div>
+
+          <!-- Drag and Drop Zone -->
+          <div id="dropZone" class="drop-zone">
+            <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.35rem;">Choose an image or video</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">or drag & drop here (.jpg, .png, .mp4, .mov)</div>
+            <input type="file" id="inferFileInput" accept="image/*,video/*" style="display: none;">
+            <button class="btn btn-secondary" onclick="document.getElementById('inferFileInput').click()">Browse File</button>
+          </div>
+
+          <button id="btnRunInference" class="btn btn-primary" style="width: 100%; margin-top: 1.25rem; justify-content: center; padding: 0.75rem;" onclick="submitInference()">
+            Run Calibrated Detection
+          </button>
+        </div>
+
+        <!-- Preview & Results Canvas -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="section-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+              Detection Canvas
+            </div>
+            <span id="inferBadgeCount" class="status-pill" style="display: none;">0 Objects Detected</span>
+          </div>
+
+          <div class="preview-container">
+            <img id="inferResultImg" class="preview-img" src="" style="display: none;">
+            <div id="inferPlaceholder" style="text-align: center; color: var(--text-muted);">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 0.75rem; opacity: 0.5;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <div>Upload an image and run inference to see bounding boxes with zero-FP rejection.</div>
+            </div>
+          </div>
+
+          <!-- Inference Metrics -->
+          <div id="inferMetricsRow" class="metrics-badge-row" style="display: none;">
+            <div class="metric-badge">
+              <span class="metric-badge-label">Model Used</span>
+              <span id="metricModelUsed" class="metric-badge-value">-</span>
+            </div>
+            <div class="metric-badge">
+              <span class="metric-badge-label">Calibrated Floor (τ*)</span>
+              <span id="metricCalibFloor" class="metric-badge-value">-</span>
+            </div>
+            <div class="metric-badge">
+              <span class="metric-badge-label">Detections</span>
+              <span id="metricDetCount" class="metric-badge-value">0</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= TAB 6: ARTIFACTS & EXPORT ================= -->
+    <section id="tab-artifacts" class="tab-pane">
+      <div class="panel-card" style="max-width: 960px; margin: 0 auto;">
+        <div class="panel-header">
+          <div class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Deployment-Ready Model Bundles
+          </div>
+          <span style="font-size: 0.8rem; color: var(--text-secondary);">Direct from workspace/exported_models</span>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Artifact Name</th>
+              <th>Format</th>
+              <th>Size</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="artifactsTableBody">
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--text-muted);">Loading exported artifacts...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

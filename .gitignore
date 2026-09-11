@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Large Model Weights and Exported Checkpoints
+*.pt
+*.pth
+*.onnx
+*.torchscript
+*.bin
+*.engine
+*_openvino_model/
+rtdetr-l*
+
+# Datasets, Videos and Large Media Files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Workspace and Runtime Generated Directories
+workspace/
+runs/
+.tempmediaStorage/
+.system_generated/
+
+# OS and IDE Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

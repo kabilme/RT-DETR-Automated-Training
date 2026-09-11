@@ -1,0 +1,95 @@
+# RT-DETR Automated Pipeline Configuration
+# Designed for robust, false-positive-free object detection training & deployment
+
+# Global Project Settings
+project:
+  name: "RT_DETR_Project"
+  work_dir: "workspace"              # Root folder for intermediate artifacts
+  seed: 42                           # Random seed for reproducibility
+  device: "auto"                     # "auto", "cpu", or "cuda" (0, 1, etc.)
+
+# Stage 1: Video Ingestion & Frame Extraction
+extraction:
+  video_path: "data/videos"          # File or directory containing video files (.mp4, .avi, .mov, etc.)
+  output_dir: "workspace/frames"     # Extracted positive frames
+  negative_output_dir: "workspace/negatives" # Extracted background/negative frames
+  sample_fps: 4.0                    # Frames to extract per second of video (e.g. 4.0 = 1 frame every 0.25s)
+  frame_step: null                   # If set, extracts every Nth frame (overrides sample_fps)
+  
+  # Frame Quality & Filtering
+  blur_filter:
+    enabled: true
+    min_laplacian_variance: 80.0     # Discard frames with variance < threshold (higher = sharper required)
+  
+  deduplication:
+    enabled: true
+    similarity_threshold: 0.96       # Discard consecutive frames with SSIM/correlation > threshold
+  
+  # Automatic Background / Negative Extraction
+  negative_harvesting:
+    enabled: true
+    negative_video_path: "data/negative_videos" # Dedicated folder for pure background videos
+    motion_threshold: 0.02           # Frames with lower motion than this can be flagged as background
+    max_negatives: 200               # Upper bound on harvested background frames
+
+# Stage 2: Annotation Ingestion & Auto-Labeling
+annotation:
+  annotation_dir: "data/annotations" # Folder with manual annotations (YOLO .txt, Pascal VOC .xml, COCO .json)
+  class_names:                       # List of class names (matching class index 0, 1, 2...)
+    - "scooter"
+  
+  auto_label:
+    enabled: true                    # Enable to automatically bootstrap annotations with pre-trained AI model
+    model: "rtdetr-l.pt"             # Base model for pseudo-labeling
+    conf_threshold: 0.30             # Confidence threshold for pseudo-labels
+    classes: [3, 1, 2]               # COCO classes: 3=motorcycle/scooter, 1=bicycle, 2=car
+
+# Stage 3: Dataset Preparation & False-Positive Suppression
+dataset:
+  output_dir: "workspace/dataset"
+  train_ratio: 0.70
+  val_ratio: 0.20
+  test_ratio: 0.10
+  
+  # False Positive Elimination Strategy
+  false_positive_mitigation:
+    include_background_images: true  # Create 0-byte empty labels for background frames
+    target_background_ratio: 0.15    # Target ~15% background/empty frames in train and val sets
+    hard_negatives_dir: "data/hard_negatives" # Folder with known false-positive background scenes
+
+# Stage 4: RT-DETR Training
+training:
+  model_architecture: "rtdetr-l.pt"  # Pretrained weights / architecture ("rtdetr-l.pt", "rtdetr-x.pt")
+  imgsz: 640                         # Input image size (square)
+  epochs: 15                         # Total training epochs
+  batch_size: 4                      # Batch size (set conservatively for CPU or low-RAM environments)
+  workers: 0                         # Set to 0 on Windows to avoid DataLoader multiprocessing issues
+  patience: 10                       # Early stopping patience epochs
+  optimizer: "AdamW"
+  lr0: 0.0005                        # Base learning rate (optimized for fine-tuning)
+  lrf: 0.01                          # Final learning rate fraction
+  weight_decay: 0.0001
+  save_period: 5                     # Save checkpoint every N epochs
+  resume: false                      # Start fresh on newly prepared dataset
+
+# Stage 5: False Positive Evaluation & Precision Calibration
+evaluation:
+  runs_dir: "workspace/evaluation"
+  target_precision: 0.99             # Desired precision on validation set (0.99 = virtually 0 false positives)
+  max_acceptable_fp_count: 0         # Threshold calibrated such that FP <= this count on negative test set
+  iou_threshold: 0.50                # IoU threshold for matching predictions to ground truth
+  min_box_area: 100                  # Minimum bounding box area in pixels (filter micro-noise)
+  aspect_ratio_range: [0.1, 10.0]    # Filter abnormal aspect ratios (w/h)
+
+# Stage 6: Export & Deployment
+export:
+  output_dir: "workspace/exported_models"
+  formats:
+    - "onnx"
+    - "torchscript"
+    - "openvino"
+  onnx:
+    opset: 17
+    dynamic: false                   # Fixed input shape (recommended for deterministic low latency)
+    simplify: true
+    half: false                      # FP16 (use false on CPU)

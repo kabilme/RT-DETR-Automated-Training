@@ -1,0 +1,217 @@
+"""
+Pipeline State Manager: Provides stage tracking, state persistence, checkpointing,
+and resume capability so the user can pause and continue at any stage.
+"""
+
+import json
+import os
+import time
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+class Stage(str, Enum):
+    EXTRACT = "extract"
+    ANNOTATE = "annotate"
+    PREPARE = "prepare"
+    TRAIN = "train"
+    EVALUATE = "evaluate"
+    EXPORT = "export"
+
+
+class StageStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+STAGE_ORDER: List[Stage] = [
+    Stage.EXTRACT,
+    Stage.ANNOTATE,
+    Stage.PREPARE,
+    Stage.TRAIN,
+    Stage.EVALUATE,
+    Stage.EXPORT,
+]
+
+
+class StateManager:
+    """Manages persistent execution state for pipeline stages."""
+
+    def __init__(self, state_file: str = "workspace/pipeline_state.json"):
+        self.state_file = Path(state_file)
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        self.data: Dict[str, Any] = self._load()
+
+    def _init_empty_state(self) -> Dict[str, Any]:
+        stages = {}
+        for s in STAGE_ORDER:
+            stages[s.value] = {
+                "status": StageStatus.PENDING.value,
+                "started_at": None,
+                "completed_at": None,
+                "duration_sec": 0.0,
+                "artifacts": {},
+                "metrics": {},
+                "error": None,
+            }
+        return {
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "last_completed_stage": None,
+            "stages": stages,
+        }
+
+    def _load(self) -> Dict[str, Any]:
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    # Backfill any missing stages
+                    for s in STAGE_ORDER:
+                        if s.value not in data.get("stages", {}):
+                            data.setdefault("stages", {})[s.value] = {
+                                "status": StageStatus.PENDING.value,
+                                "started_at": None,
+                                "completed_at": None,
+                                "duration_sec": 0.0,
+                                "artifacts": {},
+                                "metrics": {},
+                                "error": None,
+                            }
+                    return data
+            except Exception:
+                return self._init_empty_state()
+        return self._init_empty_state()
+
+    def save(self) -> None:
+        self.data["updated_at"] = datetime.now().isoformat()
+        with open(self.state_file, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, indent=2)
+
+    def get_stage_status(self, stage: Stage) -> StageStatus:
+        st_data = self.data["stages"].get(stage.value, {})
+        return StageStatus(st_data.get("status", StageStatus.PENDING.value))
+
+    def is_completed(self, stage: Stage) -> bool:
+        return self.get_stage_status(stage) == StageStatus.COMPLETED
+
+    def start_stage(self, stage: Stage) -> None:
+        self.data["stages"][stage.value]["status"] = StageStatus.RUNNING.value
+        self.data["stages"][stage.value]["started_at"] = datetime.now().isoformat()
+        self.data["stages"][stage.value]["error"] = None
+        self.save()
+
+    def complete_stage(
+        self,
+        stage: Stage,
+        artifacts: Optional[Dict[str, Any]] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        st_dict = self.data["stages"][stage.value]
+        st_dict["status"] = StageStatus.COMPLETED.value
+        now = datetime.now()
+        st_dict["completed_at"] = now.isoformat()
+        if st_dict.get("started_at"):
+            try:
+                start_dt = datetime.fromisoformat(st_dict["started_at"])
+                st_dict["duration_sec"] = round((now - start_dt).total_seconds(), 2)
+            except Exception:
+                st_dict["duration_sec"] = 0.0
+        if artifacts:
+            st_dict.setdefault("artifacts", {}).update(artifacts)
+        if metrics:
+            st_dict.setdefault("metrics", {}).update(metrics)
+        self.data["last_completed_stage"] = stage.value
+        self.save()
+
+    def fail_stage(self, stage: Stage, error_message: str) -> None:
+        st_dict = self.data["stages"][stage.value]
+        st_dict["status"] = StageStatus.FAILED.value
+        st_dict["error"] = error_message
+        self.save()
+
+    def reset_stage(self, stage: Stage, reset_downstream: bool = True) -> None:
+        """Reset a stage, and optionally reset downstream stages dependent on it."""
+        stage_idx = STAGE_ORDER.index(stage)
+        stages_to_reset = STAGE_ORDER[stage_idx:] if reset_downstream else [stage]
+
+        for s in stages_to_reset:
+            self.data["stages"][s.value] = {
+                "status": StageStatus.PENDING.value,
+                "started_at": None,
+                "completed_at": None,
+                "duration_sec": 0.0,
+                "artifacts": {},
+                "metrics": {},
+                "error": None,
+            }
+
+        # Update last completed stage
+        last_completed = None
+        for s in STAGE_ORDER:
+            if self.data["stages"][s.value]["status"] == StageStatus.COMPLETED.value:
+                last_completed = s.value
+        self.data["last_completed_stage"] = last_completed
+        self.save()
+
+    def get_next_pending_stage(self) -> Optional[Stage]:
+        for s in STAGE_ORDER:
+            if self.data["stages"][s.value]["status"] != StageStatus.COMPLETED.value:
+                return s
+        return None
+
+    def get_artifacts(self, stage: Stage) -> Dict[str, Any]:
+        return self.data["stages"][stage.value].get("artifacts", {})
+
+    def get_metrics(self, stage: Stage) -> Dict[str, Any]:
+        return self.data["stages"][stage.value].get("metrics", {})
+
+    def print_summary(self) -> None:
+        """Prints formatted summary table of all stages."""
+        try:
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            table = Table(title="RT-DETR Pipeline Execution State", show_header=True)
+            table.add_column("Stage", style="cyan", no_wrap=True)
+            table.add_column("Status", style="bold")
+            table.add_column("Duration (s)", justify="right")
+            table.add_column("Details / Artifacts")
+
+            status_colors = {
+                StageStatus.COMPLETED.value: "[green]COMPLETED[/green]",
+                StageStatus.RUNNING.value: "[yellow]RUNNING[/yellow]",
+                StageStatus.FAILED.value: "[red]FAILED[/red]",
+                StageStatus.PENDING.value: "[dim]PENDING[/dim]",
+                StageStatus.SKIPPED.value: "[blue]SKIPPED[/blue]",
+            }
+
+            for s in STAGE_ORDER:
+                info = self.data["stages"][s.value]
+                stat_display = status_colors.get(info["status"], info["status"])
+                dur = f"{info.get('duration_sec', 0.0):.1f}"
+                details = []
+                if info.get("error"):
+                    details.append(f"[red]Error: {info['error']}[/red]")
+                elif info.get("metrics"):
+                    m_str = ", ".join(f"{k}={v}" for k, v in list(info["metrics"].items())[:3])
+                    details.append(f"[dim]{m_str}[/dim]")
+                elif info.get("artifacts"):
+                    a_keys = ", ".join(info["artifacts"].keys())
+                    details.append(f"[dim]Artifacts: {a_keys}[/dim]")
+                detail_str = "; ".join(details) if details else "-"
+                table.add_row(s.value.upper(), stat_display, dur, detail_str)
+
+            console.print(table)
+        except ImportError:
+            print("\n=== RT-DETR Pipeline State ===")
+            for s in STAGE_ORDER:
+                info = self.data["stages"][s.value]
+                print(f" - {s.value.upper():<10} : {info['status'].upper()} ({info.get('duration_sec', 0.0):.1f}s)")
+            print("==============================\n")
