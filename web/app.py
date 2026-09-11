@@ -320,19 +320,30 @@ def run_stage(stage_name: str, payload: Dict[str, Any] = None):
 
 @app.post("/api/stage/reset/{stage_name}")
 def reset_stage(stage_name: str):
-    """Resets a stage and downstream stages in the state manager."""
+    """Resets a stage and downstream stages in the state manager and cleans disk data."""
     try:
+        if stage_name.lower() == "all":
+            STATE_MGR.reset_all(clean_disk=True)
+            append_log("Reset entire pipeline: all generated workspace data cleared.")
+            return {"status": "success", "reset_stage": "all"}
+
         st = Stage(stage_name)
-        STATE_MGR.reset_stage(st, reset_downstream=True)
-        if stage_name in ["train", "prepare", "annotate", "extract"]:
-            # Clean old runs so fresh training doesn't resume old weights
-            runs_train = Path("workspace/runs/train")
-            if runs_train.exists():
-                shutil.rmtree(runs_train, ignore_errors=True)
-        append_log(f"Reset stage '{stage_name}' and dependent downstream stages.")
+        STATE_MGR.reset_stage(st, reset_downstream=True, clean_disk=True)
+        append_log(f"Reset stage '{stage_name}' and cleared all associated and downstream data.")
         return {"status": "success", "reset_stage": stage_name}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/pipeline/reset")
+def reset_entire_pipeline():
+    """Resets the entire pipeline, all stages to PENDING, and purges all workspace data."""
+    global PIPELINE_RUNNING, CURRENT_RUNNING_STAGE
+    PIPELINE_RUNNING = False
+    CURRENT_RUNNING_STAGE = None
+    STATE_MGR.reset_all(clean_disk=True)
+    append_log("Reset entire pipeline: all generated workspace data cleared.")
+    return {"status": "success", "message": "All pipeline data cleared successfully"}
 
 
 @app.get("/api/gallery/inspection")

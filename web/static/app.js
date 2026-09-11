@@ -147,17 +147,57 @@ async function triggerStage(stageName, payload = {}) {
 }
 
 async function resetStage(stageName) {
-  if (!confirm(`Are you sure you want to reset stage '${stageName}' and any downstream stages?`)) {
+  const stageLabels = {
+    extract: "Stage 1 (Frame Extraction)",
+    annotate: "Stage 2 (Annotation & Auto-Labeling)",
+    prepare: "Stage 3 (Dataset Preparation)",
+    train: "Stage 4 (Model Training)",
+    evaluate: "Stage 5 (Calibration & Evaluation)",
+    export: "Stage 6 (Model Export)"
+  };
+  const label = stageLabels[stageName] || `Stage '${stageName}'`;
+  if (!confirm(`⚠️ RESET CONFIRMATION:\n\nAre you sure you want to reset ${label} and all downstream stages?\n\nThis will permanently delete all generated frames, annotations, datasets, weights, and models for these stages from disk.`)) {
     return;
   }
   try {
     const res = await fetch(`/api/stage/reset/${stageName}`, { method: "POST" });
     if (res.ok) {
-      pollStateAndLogs();
+      await refreshAllViewsAfterReset();
+      alert(`✅ ${label} and all downstream data have been cleared successfully.`);
+    } else {
+      const err = await res.json();
+      alert(`Failed to reset stage: ${err.detail || "Unknown error"}`);
     }
   } catch (e) {
     alert("Network error resetting stage: " + e.message);
   }
+}
+
+async function resetEntirePipeline() {
+  if (!confirm("⚠️ DANGER: RESET ENTIRE PIPELINE\n\nAre you sure you want to reset all 6 stages and wipe ALL generated workspace data?\n\nThis will permanently delete all extracted frames, annotations, datasets, trained weights, calibration curves, and exported models.")) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/pipeline/reset", { method: "POST" });
+    if (res.ok) {
+      await refreshAllViewsAfterReset();
+      alert("✅ Entire pipeline reset. All generated workspace data has been cleared.");
+    } else {
+      const err = await res.json();
+      alert(`Failed to reset pipeline: ${err.detail || "Unknown error"}`);
+    }
+  } catch (e) {
+    alert("Network error resetting pipeline: " + e.message);
+  }
+}
+
+async function refreshAllViewsAfterReset() {
+  await pollStateAndLogs();
+  if (typeof initGallery === "function") initGallery();
+  if (typeof initCalibration === "function") initCalibration();
+  if (typeof initArtifacts === "function") initArtifacts();
+  if (typeof loadExistingVideosForInference === "function") loadExistingVideosForInference();
+  if (typeof resetInferPreview === "function") resetInferPreview();
 }
 
 document.getElementById("btnRunFullPipeline")?.addEventListener("click", async () => {
@@ -341,8 +381,12 @@ async function initCalibration() {
 
     // Threshold breakdown
     const calib = data.calibrated_thresholds || {};
-    if (calib.global_calibrated_threshold) {
-      pill.textContent = `Global τ* = ${calib.global_calibrated_threshold}`;
+    if (pill) {
+      if (calib.global_calibrated_threshold) {
+        pill.textContent = `Global τ* = ${calib.global_calibrated_threshold}`;
+      } else {
+        pill.textContent = "Global τ* = Not Calibrated";
+      }
     }
 
     if (calib.class_thresholds && Object.keys(calib.class_thresholds).length > 0) {

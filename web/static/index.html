@@ -79,6 +79,10 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               Run Full Pipeline (Auto-Resume)
             </button>
+            <button id="btnResetPipeline" class="btn btn-danger" onclick="resetEntirePipeline()" title="Purge all generated workspace files and reset all stages">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Reset Entire Pipeline
+            </button>
           </div>
         </div>
 
@@ -606,6 +610,6 @@
 
   </main>
 
-  <script src="/app.js?v=2.2"></script>
+  <script src="/app.js?v=2.3"></script>
 </body>
 </html>

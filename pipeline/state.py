@@ -39,6 +39,31 @@ STAGE_ORDER: List[Stage] = [
 ]
 
 
+STAGE_ARTIFACTS: Dict[Stage, List[str]] = {
+    Stage.EXTRACT: [
+        "workspace/frames",
+        "workspace/negatives",
+        "workspace/frames_manifest.json",
+    ],
+    Stage.ANNOTATE: [
+        "workspace/labels",
+        "workspace/inspection",
+    ],
+    Stage.PREPARE: [
+        "workspace/dataset",
+    ],
+    Stage.TRAIN: [
+        "workspace/runs",
+    ],
+    Stage.EVALUATE: [
+        "workspace/evaluation",
+    ],
+    Stage.EXPORT: [
+        "workspace/exported_models",
+    ],
+}
+
+
 class StateManager:
     """Manages persistent execution state for pipeline stages."""
 
@@ -135,8 +160,11 @@ class StateManager:
         st_dict["error"] = error_message
         self.save()
 
-    def reset_stage(self, stage: Stage, reset_downstream: bool = True) -> None:
-        """Reset a stage, and optionally reset downstream stages dependent on it."""
+    def reset_stage(self, stage: Stage, reset_downstream: bool = True, clean_disk: bool = True) -> None:
+        """Reset a stage, and optionally reset downstream stages dependent on it, clearing disk data."""
+        import gc
+        import shutil
+
         stage_idx = STAGE_ORDER.index(stage)
         stages_to_reset = STAGE_ORDER[stage_idx:] if reset_downstream else [stage]
 
@@ -151,6 +179,20 @@ class StateManager:
                 "error": None,
             }
 
+            if clean_disk and s in STAGE_ARTIFACTS:
+                gc.collect()
+                for rel_path in STAGE_ARTIFACTS[s]:
+                    p = Path(rel_path)
+                    if p.exists():
+                        try:
+                            if p.is_dir():
+                                shutil.rmtree(p, ignore_errors=True)
+                                p.mkdir(parents=True, exist_ok=True)
+                            elif p.is_file():
+                                p.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+
         # Update last completed stage
         last_completed = None
         for s in STAGE_ORDER:
@@ -158,6 +200,24 @@ class StateManager:
                 last_completed = s.value
         self.data["last_completed_stage"] = last_completed
         self.save()
+
+    def reset_all(self, clean_disk: bool = True) -> None:
+        """Resets all stages to PENDING and clears all generated workspace artifacts."""
+        import shutil
+        self.reset_stage(STAGE_ORDER[0], reset_downstream=True, clean_disk=clean_disk)
+        if clean_disk:
+            for extra in ["workspace/inference_output", "workspace/web_uploads"]:
+                p = Path(extra)
+                if p.exists() and p.is_dir():
+                    for item in p.iterdir():
+                        if item.name != ".gitkeep":
+                            try:
+                                if item.is_dir():
+                                    shutil.rmtree(item, ignore_errors=True)
+                                else:
+                                    item.unlink(missing_ok=True)
+                            except Exception:
+                                pass
 
     def get_next_pending_stage(self) -> Optional[Stage]:
         for s in STAGE_ORDER:

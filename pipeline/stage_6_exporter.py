@@ -84,6 +84,8 @@ class ModelExporter:
             bests = list(Path("workspace/runs/train").rglob("best.pt"))
             if bests:
                 ckpt = str(bests[0])
+            elif Path("rtdetr-l.pt").exists():
+                ckpt = "rtdetr-l.pt"
             else:
                 err = "No trained RT-DETR checkpoint found to export."
                 self.state_mgr.fail_stage(Stage.EXPORT, err)
