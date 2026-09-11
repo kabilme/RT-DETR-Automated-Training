@@ -83,6 +83,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 def get_pipeline_state():
     """Returns the current state and metrics for all stages."""
     STATE_MGR.data = STATE_MGR._load()
+    STATE_MGR.sync_with_disk()
     return {
         "stages": STATE_MGR.data.get("stages", {}),
         "last_completed_stage": STATE_MGR.data.get("last_completed_stage"),
@@ -332,7 +333,12 @@ def _run_full_pipeline_task(from_stage: Optional[str] = None, force: bool = Fals
         state_mgr = StateManager()
 
         stage_order_names = [s.value for s in STAGE_ORDER]
-        start_idx = stage_order_names.index(from_stage) if from_stage and from_stage in stage_order_names else 0
+        state_mgr.sync_with_disk()
+        first_pending = state_mgr.get_next_pending_stage()
+        earliest_idx = STAGE_ORDER.index(first_pending) if first_pending else 0
+        requested_idx = stage_order_names.index(from_stage) if from_stage and from_stage in stage_order_names else earliest_idx
+        # Never start downstream if an upstream stage is incomplete or missing files
+        start_idx = 0 if force else min(requested_idx, earliest_idx)
 
         for idx in range(start_idx, len(STAGE_ORDER)):
             if PIPELINE_STOP_REQUESTED:
@@ -343,6 +349,7 @@ def _run_full_pipeline_task(from_stage: Optional[str] = None, force: bool = Fals
             s_name = stage.value
 
             state_mgr.data = state_mgr._load()
+            state_mgr.sync_with_disk()
             # If already completed and not force, skip to next stage
             if not force and state_mgr.is_completed(stage):
                 append_log(f"Stage {idx+1}/{len(STAGE_ORDER)}: '{s_name.upper()}' is already completed. Advancing to next stage...")
@@ -380,6 +387,17 @@ def run_stage(stage_name: str, payload: Dict[str, Any] = None):
 
     if stage_name not in [s.value for s in STAGE_ORDER]:
         raise HTTPException(status_code=400, detail=f"Invalid stage: {stage_name}")
+
+    target_stage = Stage(stage_name)
+    STATE_MGR.sync_with_disk()
+    target_idx = STAGE_ORDER.index(target_stage)
+    for prev_idx in range(target_idx):
+        prev_stage = STAGE_ORDER[prev_idx]
+        if not STATE_MGR.is_completed(prev_stage):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot run stage '{stage_name.upper()}': prerequisite stage '{prev_stage.value.upper()}' is not completed or missing disk artifacts. Please run '{prev_stage.value.upper()}' first."
+            )
 
     kwargs = payload or {}
     t = threading.Thread(target=_run_stage_task, args=(stage_name,), kwargs=kwargs, daemon=True)

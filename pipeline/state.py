@@ -71,6 +71,7 @@ class StateManager:
         self.state_file = Path(state_file)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.data: Dict[str, Any] = self._load()
+        self.sync_with_disk()
 
     def _init_empty_state(self) -> Dict[str, Any]:
         stages = {}
@@ -250,9 +251,39 @@ class StateManager:
                             except Exception:
                                 pass
 
+    def sync_with_disk(self) -> None:
+        """Verifies that completed stages have their physical disk artifacts.
+        If artifacts are missing, reverts that stage and all downstream stages to PENDING."""
+        dirty = False
+        earliest_invalid_idx = None
+
+        for idx, stage in enumerate(STAGE_ORDER):
+            status = self.data["stages"][stage.value].get("status")
+            if status == StageStatus.COMPLETED.value:
+                if not self.is_completed(stage):
+                    earliest_invalid_idx = idx
+                    break
+
+        if earliest_invalid_idx is not None:
+            # Reset this stage and all downstream stages to PENDING
+            for s in STAGE_ORDER[earliest_invalid_idx:]:
+                self.data["stages"][s.value]["status"] = StageStatus.PENDING.value
+                self.data["stages"][s.value]["error"] = None
+                dirty = True
+
+            # Recalculate last completed stage
+            last_completed = None
+            for s in STAGE_ORDER:
+                if self.data["stages"][s.value].get("status") == StageStatus.COMPLETED.value:
+                    last_completed = s.value
+            self.data["last_completed_stage"] = last_completed
+
+        if dirty:
+            self.save()
+
     def get_next_pending_stage(self) -> Optional[Stage]:
         for s in STAGE_ORDER:
-            if self.data["stages"][s.value]["status"] != StageStatus.COMPLETED.value:
+            if not self.is_completed(s):
                 return s
         return None
 
